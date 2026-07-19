@@ -1,7 +1,8 @@
 /**
  * @file    app.h
  * @brief   应用初始化入口
- * @note    提供 App_Init() 函数, 完成所有应用层模块的初始化和任务注册
+ * @note    提供 App_Init() 函数, 按顺序初始化各 BSP 驱动模块
+ *          FreeRTOS 任务创建由 CubeMX 生成的 MX_FREERTOS_Init() 完成
  */
 #ifndef __APP_H
 #define __APP_H
