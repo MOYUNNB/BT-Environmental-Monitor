@@ -1,3 +1,6 @@
 build
 mx.scratch
 !.settings
+
+# Claude 项目上下文（本地专用，不推送）
+CLAUDE.md
