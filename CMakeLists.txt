@@ -52,10 +52,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
 )
 
-# BSP library - Board Support Package (sensor drivers)
-set(BSP_Src
-    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/Src/aht20.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/Src/ina226.c
+# BSP library - Board Support Package (sensor drivers + peripheral drivers)
+file(GLOB_RECURSE BSP_Src
+    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/Src/*.c
 )
 add_library(BSP OBJECT)
 target_sources(BSP PRIVATE ${BSP_Src})
