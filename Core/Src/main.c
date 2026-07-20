@@ -738,10 +738,13 @@ void StartDefaultTask(void *argument)
 void StartSensorRead(void *argument)
 {
   /* USER CODE BEGIN StartSensorRead */
-  printf("[TASK] StartSensorRead started\r\n");
+  printf("[TASK] StartSensorRead started, waiting 1s...\r\n");
+  osDelay(1000);
+  printf("[TASK] 1s passed, starting sensor init...\r\n");
+
+  osDelay(100);
   uint32_t seq = 0;
 
-  /* 首次运行: 初始化传感器和 TF 卡 (此时内核已在运行, osDelay/信号量可用) */
   printf("[AHT20] Init... ");
   if (AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle) == AHT20_OK)
       printf("OK\r\n");
