@@ -5,6 +5,7 @@
  *          各任务入口函数由 CubeMX 在 freertos.c 中通过 osThreadNew() 注册
  */
 #include "app.h"
+#include <stdio.h>
 #include "lcd.h"
 #include "key.h"
 #include "ws2812.h"
@@ -36,26 +37,61 @@ void *App_GetSPI2Mutex(void)
  */
 void App_Init(void)
 {
-    /* 1. LCD 初始化 (SPI1 独占, 不需要互斥锁) */
+    printf("\r\n========== System Init Start ==========\r\n");
+
+    /* 1. LCD 初始化 */
+    printf("[LCD] Init... ");
     LCD_Init();
     LCD_Clear(LCD_COLOR_BLACK);
     LCD_DrawString(20, 140, "Initializing...", LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
+    printf("OK\r\n");
 
     /* 2. 按键初始化 */
+    printf("[KEY] Init... ");
     KEY_Init();
+    printf("OK\r\n");
 
-    /* 3. WS2812 初始化 (TIM5 + DMA) */
+    /* 3. WS2812 初始化 */
+    printf("[WS2812] Init... ");
     WS2812_Init();
+    printf("OK\r\n");
 
-    /* 4. 蓝牙初始化 (USART2 + DMA + IDLE) */
+    /* 4. 蓝牙初始化 */
+    printf("[BT] Init... ");
     BLUETOOTH_Init(&huart2);
+    printf("OK\r\n");
 
-    /* 5. 传感器初始化 (I2C1, 互斥锁保护) */
-    AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle);
-    INA226_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, 15.0f);
-    SD3078_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, NULL);
-    ICM42688_Init(&hspi2, (void *)&xSemaphore_SPI2Handle);
+    /* 5. 传感器初始化 */
+    printf("[AHT20] Init... ");
+    if (AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle) == AHT20_OK)
+        printf("OK\r\n");
+    else
+        printf("FAIL\r\n");
 
-    /* 6. TF 卡初始化 (SDIO + FATFS) */
-    TF_Init();
+    printf("[INA226] Init... ");
+    if (INA226_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, 15.0f) == INA226_OK)
+        printf("OK\r\n");
+    else
+        printf("FAIL\r\n");
+
+    printf("[SD3078] Init... ");
+    if (SD3078_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, NULL) == SD3078_OK)
+        printf("OK\r\n");
+    else
+        printf("FAIL\r\n");
+
+    printf("[ICM42688] Init... ");
+    if (ICM42688_Init(&hspi2, (void *)&xSemaphore_SPI2Handle) == ICM42688_OK)
+        printf("OK\r\n");
+    else
+        printf("FAIL\r\n");
+
+    /* 6. TF 卡初始化 */
+    printf("[TF] Init... ");
+    if (TF_Init())
+        printf("OK\r\n");
+    else
+        printf("FAIL\r\n");
+
+    printf("========== System Init Complete ==========\r\n");
 }

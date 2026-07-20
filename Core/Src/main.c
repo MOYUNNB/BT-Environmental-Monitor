@@ -171,7 +171,13 @@ void StartWS2812(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+/* printf 重定向: 串口发送一个字符 */
+int __io_putchar(int ch)
+{
+    extern UART_HandleTypeDef huart1;
+    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 10);
+    return ch;
+}
 /* USER CODE END 0 */
 
 /**
@@ -712,10 +718,17 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  /* 系统监控任务: 打印调试信息 */
+  /* 系统心跳: 每秒打印一次 */
+  uint32_t tick = 0;
   for(;;)
   {
-    osDelay(5000);
+    tick++;
+    if (tick % 10 == 0) {
+        printf("[SYS] Heartbeat #%lu, Heap: %lu bytes free\r\n",
+               (unsigned long)tick,
+               (unsigned long)(unsigned long)osKernelGetTickCount());
+    }
+    osDelay(1000);
   }
   /* USER CODE END 5 */
 }
@@ -768,6 +781,18 @@ void StartSensorRead(void *argument)
 
     /* 5. 发布数据 (更新全局 + 推入队列) */
     SensorData_Update(&data);
+
+    /* 调试: 每 10 次打印一次传感器值 */
+    if (data.seq_num % 10 == 0) {
+        printf("[SENSOR] #%lu T=%.1fC H=%.1f%% V=%.2fV I=%.3fA "
+               "Accel=%.2f,%.2f,%.2fg Gyro=%.1f,%.1f,%.1fdps OK=0x%02X\r\n",
+               (unsigned long)data.seq_num,
+               (double)data.env.temperature, (double)data.env.humidity,
+               (double)data.power.bus_voltage, (double)data.power.current,
+               (double)data.imu.accel_x, (double)data.imu.accel_y, (double)data.imu.accel_z,
+               (double)data.imu.gyro_x, (double)data.imu.gyro_y, (double)data.imu.gyro_z,
+               (unsigned)data.sensors_ok);
+    }
 
     osDelay(100);
   }
