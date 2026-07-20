@@ -211,44 +211,66 @@ static void lcd_write_buf(const uint8_t *buf, uint16_t len)
  */
 void LCD_Init(void)
 {
-    /*
-     * TODO: 实现初始化流程
-     *
-     * // 硬件复位
-     * HAL_GPIO_WritePin(LCD_RST_PORT, LCD_RST_PIN, GPIO_PIN_RESET);
-     * HAL_Delay(10);
-     * HAL_GPIO_WritePin(LCD_RST_PORT, LCD_RST_PIN, GPIO_PIN_SET);
-     * HAL_Delay(120);
-     *
-     * // 软件复位
-     * lcd_write_cmd(0x01);  // SWRESET
-     * HAL_Delay(150);
-     *
-     * // 退出睡眠模式
-     * lcd_write_cmd(0x11);  // SLPOUT
-     * HAL_Delay(200);
-     *
-     * // 配置像素格式
-     * lcd_write_cmd(0x3A);  // COLMOD
-     * lcd_write_data(0x55); // RGB565
-     *
-     * // 设置初始方向
-     * LCD_SetDirection(LCD_DIR_PORTRAIT);
-     *
-     * // 开显示
-     * lcd_write_cmd(0x29);  // DISPON
-     * HAL_Delay(50);
-     *
-     * // 清屏
-     * LCD_Clear(LCD_COLOR_BLACK);
-     *
-     * // 如果需要, 在这里使能背光:
-     * // 如果背光由 GPIO 控制:
-     * //     HAL_GPIO_WritePin(BL_PORT, BL_PIN, GPIO_PIN_SET);
-     * // 如果由 PWM 控制:
-     * //     HAL_TIM_PWM_Start(&htim, TIM_CHANNEL_x);
-     * //     __HAL_TIM_SET_COMPARE(&htim, TIM_CHANNEL_x, 100);
-     */
+    /* 1. 硬件复位 */
+    HAL_GPIO_WritePin(LCD_RST_PORT, LCD_RST_PIN, GPIO_PIN_RESET);
+    HAL_Delay(10);
+    HAL_GPIO_WritePin(LCD_RST_PORT, LCD_RST_PIN, GPIO_PIN_SET);
+    HAL_Delay(120);
+
+    /* 2. 软件复位 */
+    lcd_write_cmd(0x01);  /* SWRESET */
+    HAL_Delay(150);
+
+    /* 3. 退出睡眠模式 */
+    lcd_write_cmd(0x11);  /* SLPOUT */
+    HAL_Delay(200);
+
+    /* 4. 像素格式 RGB565 */
+    lcd_write_cmd(0x3A);  /* COLMOD */
+    lcd_write_data(0x55); /* 16-bit RGB565 */
+
+    /* 5. 寄存器初始化序列 (参考 ST7789V2 数据手册) */
+    lcd_write_cmd(0xB2);
+    lcd_write_data(0x0C); lcd_write_data(0x0C);
+    lcd_write_data(0x00); lcd_write_data(0x33); lcd_write_data(0x33);
+
+    lcd_write_cmd(0xB7); lcd_write_data(0x35);
+    lcd_write_cmd(0xBB); lcd_write_data(0x32);
+    lcd_write_cmd(0xC2); lcd_write_data(0x01);
+    lcd_write_cmd(0xC3); lcd_write_data(0x15);
+    lcd_write_cmd(0xC4); lcd_write_data(0x20);
+    lcd_write_cmd(0xC6); lcd_write_data(0x0F);
+
+    lcd_write_cmd(0xD0);
+    lcd_write_data(0xA4); lcd_write_data(0xA1);
+
+    /* Gamma 曲线 */
+    lcd_write_cmd(0xE0);
+    lcd_write_data(0xD0); lcd_write_data(0x08); lcd_write_data(0x0E);
+    lcd_write_data(0x09); lcd_write_data(0x09); lcd_write_data(0x05);
+    lcd_write_data(0x31); lcd_write_data(0x33); lcd_write_data(0x48);
+    lcd_write_data(0x17); lcd_write_data(0x14); lcd_write_data(0x15);
+    lcd_write_data(0x31); lcd_write_data(0x34);
+
+    lcd_write_cmd(0xE1);
+    lcd_write_data(0xD0); lcd_write_data(0x08); lcd_write_data(0x0E);
+    lcd_write_data(0x09); lcd_write_data(0x09); lcd_write_data(0x15);
+    lcd_write_data(0x31); lcd_write_data(0x33); lcd_write_data(0x48);
+    lcd_write_data(0x17); lcd_write_data(0x14); lcd_write_data(0x15);
+    lcd_write_data(0x31); lcd_write_data(0x34);
+
+    /* 6. 显示反转开 */
+    lcd_write_cmd(0x21);
+
+    /* 7. 默认方向 */
+    LCD_SetDirection(LCD_DIR_PORTRAIT);
+
+    /* 8. 开显示 */
+    lcd_write_cmd(0x29);  /* DISPON */
+    HAL_Delay(50);
+
+    /* 9. 清屏 */
+    LCD_Clear(LCD_COLOR_BLACK);
 }
 
 /*
@@ -283,19 +305,15 @@ void LCD_Init(void)
 void LCD_SetDirection(LCD_Direction_t dir)
 {
     s_dir = dir;
-    /*
-     * TODO: 修改 MADCTL (0x36) 参数
-     *
-     * uint8_t madctl = 0;
-     * switch (dir) {
-     *     case LCD_DIR_PORTRAIT:      madctl = 0x00; break;
-     *     case LCD_DIR_LANDSCAPE:     madctl = 0x60; break;  // MV|MX
-     *     case LCD_DIR_PORTRAIT_180:  madctl = 0xC0; break;  // MX|MY
-     *     case LCD_DIR_LANDSCAPE_270: madctl = 0xA0; break;  // MV|MY
-     * }
-     * lcd_write_cmd(0x36);  // MADCTL
-     * lcd_write_data(madctl);
-     */
+    uint8_t madctl = 0;
+    switch (dir) {
+        case LCD_DIR_PORTRAIT:      madctl = 0x00; break;
+        case LCD_DIR_LANDSCAPE:     madctl = 0xC0; break;  /* MV|MX */
+        case LCD_DIR_PORTRAIT_180:  madctl = 0x70; break;  /* MX|MY|ML */
+        case LCD_DIR_LANDSCAPE_270: madctl = 0xA0; break;  /* MV|MY */
+    }
+    lcd_write_cmd(0x36);  /* MADCTL */
+    lcd_write_data(madctl);
 }
 
 /*
@@ -337,147 +355,200 @@ void LCD_SetDirection(LCD_Direction_t dir)
  *   -> CPU 零占用, 传输完成后在回调中操作
  *   -> 但需要外部存储, 本项目可能没有足够 RAM
  */
+static void lcd_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    lcd_write_cmd(0x2A);  /* CASET */
+    lcd_write_data((uint8_t)(x0 >> 8)); lcd_write_data((uint8_t)(x0 & 0xFF));
+    lcd_write_data((uint8_t)(x1 >> 8)); lcd_write_data((uint8_t)(x1 & 0xFF));
+    lcd_write_cmd(0x2B);  /* RASET */
+    lcd_write_data((uint8_t)(y0 >> 8)); lcd_write_data((uint8_t)(y0 & 0xFF));
+    lcd_write_data((uint8_t)(y1 >> 8)); lcd_write_data((uint8_t)(y1 & 0xFF));
+    lcd_write_cmd(0x2C);  /* RAMWR */
+}
+
 void LCD_Clear(uint16_t color)
 {
-    /*
-     * TODO: 设置窗口为全屏 → 批量写 color 数据
-     *
-     * // 设置全屏窗口
-     * lcd_write_cmd(0x2A);              // CASET
-     * lcd_write_data(0x00); lcd_write_data(0x00);  // XS = 0
-     * lcd_write_data(0x00); lcd_write_data(0xEF);  // XE = 239
-     * lcd_write_cmd(0x2B);              // RASET
-     * lcd_write_data(0x00); lcd_write_data(0x00);  // YS = 0
-     * lcd_write_data(0x01); lcd_write_data(0x3F);  // YE = 319
-     *
-     * // 开始写像素
-     * lcd_write_cmd(0x2C);              // RAMWR
-     *
-     * // 填充所有像素 (76800 个)
-     * uint8_t hi = (color >> 8) & 0xFF;
-     * uint8_t lo = color & 0xFF;
-     * for (uint32_t i = 0; i < (240 * 320); i++) {
-     *     lcd_write_data(hi);
-     *     lcd_write_data(lo);
-     * }
-     *
-     * 提示: 如果屏幕中间有条纹, 说明 SPI 时钟频率太高
-     * (信号质量不佳), 可以降低 SPI 波特率分频试试。
-     */
+    /* 设置全屏窗口 */
+    lcd_set_window(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+
+    /* 用缓冲区批量填充 */
+    uint8_t hi = (uint8_t)(color >> 8);
+    uint8_t lo = (uint8_t)(color & 0xFF);
+    uint8_t buf[512];
+    for (uint16_t i = 0; i < 512; i += 2) {
+        buf[i] = hi;
+        buf[i + 1] = lo;
+    }
+
+    uint32_t total = (uint32_t)LCD_WIDTH * LCD_HEIGHT;  /* 76800 像素 */
+    uint32_t sent = 0;
+    while (sent < total * 2) {
+        uint32_t chunk = (total * 2 - sent > 512) ? 512 : (total * 2 - sent);
+        lcd_write_buf(buf, (uint16_t)chunk);
+        sent += chunk;
+    }
 }
 
 void LCD_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-    (void)x; (void)y; (void)color;
-    /*
-     * TODO: 设置 CASET(0x2A) + RASET(0x2B) → RAMWR(0x2C) 写 2 字节颜色
-     *
-     * // 设置单像素窗口
-     * lcd_write_cmd(0x2A);              // CASET
-     * lcd_write_data(x >> 8); lcd_write_data(x & 0xFF);
-     * lcd_write_data(x >> 8); lcd_write_data(x & 0xFF);
-     * lcd_write_cmd(0x2B);              // RASET
-     * lcd_write_data(y >> 8); lcd_write_data(y & 0xFF);
-     * lcd_write_data(y >> 8); lcd_write_data(y & 0xFF);
-     *
-     * // 写入颜色
-     * lcd_write_cmd(0x2C);              // RAMWR
-     * lcd_write_data((color >> 8) & 0xFF);  // 高字节
-     * lcd_write_data(color & 0xFF);         // 低字节
-     *
-     * 注意: CASET/RASET 参数是 16 位, 所以需要拆为高低字节,
-     * 且 ST7789V2 使用 Big Endian 格式。
-     * x > 255 时 x>>8 不为 0, 所以不能直接写 0x00。
-     * 正确写法: 总是拆为高低字节发送。
-     */
+    if (x >= LCD_WIDTH || y >= LCD_HEIGHT) return;
+    lcd_set_window(x, y, x, y);
+    lcd_write_data((uint8_t)(color >> 8));
+    lcd_write_data((uint8_t)(color & 0xFF));
 }
 
 void LCD_FillRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
 {
-    (void)x0; (void)y0; (void)x1; (void)y1; (void)color;
-    /*
-     * TODO: 设置窗口 → 循环或 DMA 写 color
-     *
-     * 实现和 LCD_Clear 类似, 但窗口大小是 (x1-x0+1) × (y1-y0+1):
-     *
-     * uint32_t pixels = (uint32_t)(x1 - x0 + 1) * (y1 - y0 + 1);
-     *
-     * // 设置窗口
-     * lcd_write_cmd(0x2A);   // CASET
-     * lcd_write_data(x0 >> 8); lcd_write_data(x0 & 0xFF);
-     * lcd_write_data(x1 >> 8); lcd_write_data(x1 & 0xFF);
-     * lcd_write_cmd(0x2B);   // RASET
-     * lcd_write_data(y0 >> 8); lcd_write_data(y0 & 0xFF);
-     * lcd_write_data(y1 >> 8); lcd_write_data(y1 & 0xFF);
-     *
-     * // 填充
-     * lcd_write_cmd(0x2C);   // RAMWR
-     * uint8_t hi = (uint8_t)(color >> 8);
-     * uint8_t lo = (uint8_t)color;
-     * for (uint32_t i = 0; i < pixels; i++) {
-     *     lcd_write_data(hi);
-     *     lcd_write_data(lo);
-     * }
-     *
-     * 优化: 对于大量像素, 先构建缓冲区再一次发送。
-     * 就像 LCD_Clear 中方案 B 描述的那样。
-     */
+    if (x0 > x1 || y0 > y1) return;
+    if (x1 >= LCD_WIDTH)  x1 = LCD_WIDTH - 1;
+    if (y1 >= LCD_HEIGHT) y1 = LCD_HEIGHT - 1;
+
+    lcd_set_window(x0, y0, x1, y1);
+
+    uint32_t pixels = (uint32_t)(x1 - x0 + 1) * (uint32_t)(y1 - y0 + 1);
+    uint8_t hi = (uint8_t)(color >> 8);
+    uint8_t lo = (uint8_t)(color & 0xFF);
+
+    /* 小缓冲区批量发送 */
+    uint8_t buf[512];
+    for (uint16_t i = 0; i < 512; i += 2) {
+        buf[i] = hi;
+        buf[i + 1] = lo;
+    }
+
+    uint32_t total_bytes = pixels * 2;
+    uint32_t sent = 0;
+    while (sent < total_bytes) {
+        uint32_t chunk = (total_bytes - sent > 512) ? 512 : (total_bytes - sent);
+        lcd_write_buf(buf, (uint16_t)chunk);
+        sent += chunk;
+    }
 }
+
+/* 5x7 ASCII 字库 (0x20~0x7E, 95 字符) */
+static const uint8_t s_font5x7[95][5] = {
+    {0x00,0x00,0x00,0x00,0x00}, /* ' ' */
+    {0x00,0x00,0x5F,0x00,0x00}, /* '!' */
+    {0x00,0x07,0x00,0x07,0x00}, /* '"' */
+    {0x14,0x7F,0x14,0x7F,0x14}, /* '#' */
+    {0x24,0x2A,0x7F,0x2A,0x12}, /* '$' */
+    {0x23,0x13,0x08,0x64,0x62}, /* '%' */
+    {0x36,0x49,0x55,0x22,0x50}, /* '&' */
+    {0x00,0x05,0x03,0x00,0x00}, /* ''' */
+    {0x00,0x1C,0x22,0x41,0x00}, /* '(' */
+    {0x00,0x41,0x22,0x1C,0x00}, /* ')' */
+    {0x14,0x08,0x3E,0x08,0x14}, /* '*' */
+    {0x08,0x08,0x3E,0x08,0x08}, /* '+' */
+    {0x00,0x50,0x30,0x00,0x00}, /* ',' */
+    {0x08,0x08,0x08,0x08,0x08}, /* '-' */
+    {0x00,0x60,0x60,0x00,0x00}, /* '.' */
+    {0x20,0x10,0x08,0x04,0x02}, /* '/' */
+    {0x3E,0x51,0x49,0x45,0x3E}, /* '0' */
+    {0x00,0x42,0x7F,0x40,0x00}, /* '1' */
+    {0x42,0x61,0x51,0x49,0x46}, /* '2' */
+    {0x21,0x41,0x45,0x4B,0x31}, /* '3' */
+    {0x18,0x14,0x12,0x7F,0x10}, /* '4' */
+    {0x27,0x45,0x45,0x45,0x39}, /* '5' */
+    {0x3C,0x4A,0x49,0x49,0x30}, /* '6' */
+    {0x01,0x71,0x09,0x05,0x03}, /* '7' */
+    {0x36,0x49,0x49,0x49,0x36}, /* '8' */
+    {0x06,0x49,0x49,0x29,0x1E}, /* '9' */
+    {0x00,0x36,0x36,0x00,0x00}, /* ':' */
+    {0x00,0x56,0x36,0x00,0x00}, /* ';' */
+    {0x08,0x14,0x22,0x41,0x00}, /* '<' */
+    {0x14,0x14,0x14,0x14,0x14}, /* '=' */
+    {0x00,0x41,0x22,0x14,0x08}, /* '>' */
+    {0x02,0x01,0x51,0x09,0x06}, /* '?' */
+    {0x32,0x49,0x79,0x41,0x3E}, /* '@' */
+    {0x7E,0x11,0x11,0x11,0x7E}, /* 'A' */
+    {0x7F,0x49,0x49,0x49,0x36}, /* 'B' */
+    {0x3E,0x41,0x41,0x41,0x22}, /* 'C' */
+    {0x7F,0x41,0x41,0x22,0x1C}, /* 'D' */
+    {0x7F,0x49,0x49,0x49,0x41}, /* 'E' */
+    {0x7F,0x09,0x09,0x09,0x01}, /* 'F' */
+    {0x3E,0x41,0x49,0x49,0x7A}, /* 'G' */
+    {0x7F,0x08,0x08,0x08,0x7F}, /* 'H' */
+    {0x00,0x41,0x7F,0x41,0x00}, /* 'I' */
+    {0x20,0x40,0x41,0x3F,0x01}, /* 'J' */
+    {0x7F,0x08,0x14,0x22,0x41}, /* 'K' */
+    {0x7F,0x40,0x40,0x40,0x40}, /* 'L' */
+    {0x7F,0x02,0x0C,0x02,0x7F}, /* 'M' */
+    {0x7F,0x04,0x08,0x10,0x7F}, /* 'N' */
+    {0x3E,0x41,0x41,0x41,0x3E}, /* 'O' */
+    {0x7F,0x09,0x09,0x09,0x06}, /* 'P' */
+    {0x3E,0x41,0x51,0x21,0x5E}, /* 'Q' */
+    {0x7F,0x09,0x19,0x29,0x46}, /* 'R' */
+    {0x46,0x49,0x49,0x49,0x31}, /* 'S' */
+    {0x01,0x01,0x7F,0x01,0x01}, /* 'T' */
+    {0x3F,0x40,0x40,0x40,0x3F}, /* 'U' */
+    {0x1F,0x20,0x40,0x20,0x1F}, /* 'V' */
+    {0x3F,0x40,0x38,0x40,0x3F}, /* 'W' */
+    {0x63,0x14,0x08,0x14,0x63}, /* 'X' */
+    {0x07,0x08,0x70,0x08,0x07}, /* 'Y' */
+    {0x61,0x51,0x49,0x45,0x43}, /* 'Z' */
+    {0x00,0x7F,0x41,0x41,0x00}, /* '[' */
+    {0x02,0x04,0x08,0x10,0x20}, /* '\' */
+    {0x00,0x41,0x41,0x7F,0x00}, /* ']' */
+    {0x04,0x02,0x01,0x02,0x04}, /* '^' */
+    {0x80,0x80,0x80,0x80,0x80}, /* '_' */
+    {0x00,0x03,0x07,0x00,0x00}, /* '`' */
+    {0x20,0x54,0x54,0x54,0x78}, /* 'a' */
+    {0x7F,0x48,0x44,0x44,0x38}, /* 'b' */
+    {0x38,0x44,0x44,0x44,0x20}, /* 'c' */
+    {0x38,0x44,0x44,0x48,0x7F}, /* 'd' */
+    {0x38,0x54,0x54,0x54,0x18}, /* 'e' */
+    {0x08,0x7E,0x09,0x01,0x02}, /* 'f' */
+    {0x0C,0x52,0x52,0x52,0x3E}, /* 'g' */
+    {0x7F,0x08,0x04,0x04,0x78}, /* 'h' */
+    {0x00,0x44,0x7D,0x40,0x00}, /* 'i' */
+    {0x20,0x40,0x44,0x3D,0x00}, /* 'j' */
+    {0x7F,0x10,0x28,0x44,0x00}, /* 'k' */
+    {0x00,0x41,0x7F,0x40,0x00}, /* 'l' */
+    {0x7C,0x04,0x18,0x04,0x78}, /* 'm' */
+    {0x7C,0x08,0x04,0x04,0x78}, /* 'n' */
+    {0x38,0x44,0x44,0x44,0x38}, /* 'o' */
+    {0x7C,0x14,0x14,0x14,0x08}, /* 'p' */
+    {0x08,0x14,0x14,0x18,0x7C}, /* 'q' */
+    {0x7C,0x08,0x04,0x04,0x08}, /* 'r' */
+    {0x48,0x54,0x54,0x54,0x20}, /* 's' */
+    {0x04,0x3F,0x44,0x40,0x20}, /* 't' */
+    {0x3C,0x40,0x40,0x20,0x7C}, /* 'u' */
+    {0x1C,0x20,0x40,0x20,0x1C}, /* 'v' */
+    {0x3C,0x40,0x30,0x40,0x3C}, /* 'w' */
+    {0x44,0x28,0x10,0x28,0x44}, /* 'x' */
+    {0x0C,0x50,0x50,0x50,0x3C}, /* 'y' */
+    {0x44,0x64,0x54,0x4C,0x44}, /* 'z' */
+    {0x00,0x08,0x36,0x41,0x00}, /* '{' */
+    {0x00,0x00,0x7F,0x00,0x00}, /* '|' */
+    {0x00,0x41,0x36,0x08,0x00}, /* '}' */
+    {0x02,0x01,0x02,0x04,0x02}, /* '~' */
+};
 
 void LCD_DrawString(uint16_t x, uint16_t y, const char *str,
                     uint16_t color, uint16_t bg, uint8_t scale)
 {
-    (void)x; (void)y; (void)str; (void)color; (void)bg; (void)scale;
-    /*
-     * TODO: 遍历字符串每个字符 → 查 5x7 字库 → 画点
-     *
-     * 实现步骤:
-     *
-     * // Step 1: 定义 5x7 ASCII 字库 (只包含可打印字符 0x20~0x7E)
-     * // 每个字符 5 字节, 共 95 个字符
-     * static const uint8_t s_font5x7[95][5] = {
-     *     // 空格 ' ' (0x20)
-     *     {0x00, 0x00, 0x00, 0x00, 0x00},
-     *     // '!' (0x21)
-     *     {0x00, 0x00, 0x5F, 0x00, 0x00},
-     *     // '"' (0x22)
-     *     {0x00, 0x07, 0x00, 0x07, 0x00},
-     *     // ... 需要完整 95 个字符的定义
-     *     // 可以从开源项目 (Adafruit-GFX, u8g2) 复制
-     * };
-     *
-     * // Step 2: 检查放大倍数上限
-     * if (scale > 4) scale = 4;
-     * if (scale == 0) scale = 1;
-     *
-     * // Step 3: 遍历字符串
-     * uint16_t cur_x = x;
-     * while (*str) {
-     *     char c = *str++;
-     *     if (c < 0x20 || c > 0x7E) c = ' ';  // 非可打印字符转空格
-     *     const uint8_t *glyph = s_font5x7[c - 0x20];
-     *
-     *     for (uint8_t col = 0; col < 5; col++) {
-     *         for (uint8_t row = 0; row < 7; row++) {
-     *             uint16_t pixel_color = (glyph[col] & (1 << row)) ? color : bg;
-     *             // 画放大的方块: scale × scale 像素
-     *             LCD_FillRect(cur_x + col * scale,
-     *                          y + row * scale,
-     *                          cur_x + col * scale + scale - 1,
-     *                          y + row * scale + scale - 1,
-     *                          pixel_color);
-     *         }
-     *     }
-     *     cur_x += (5 + 1) * scale;  // 5 列 + 1 列间距
-     *
-     *     // 如果超出屏幕宽度, 换行 (可选)
-     * }
-     *
-     * 注意: 每次调用 DrawString 都会产生大量 SPI 事务。
-     * 如果频繁更新文字 (如实时温度), 建议:
-     * 1. 只更新变化的部分 (不要全屏清)
-     * 2. 先画一个背景色矩形覆盖旧文字, 再写新文字
-     */
+    if (scale > 4) scale = 4;
+    if (scale == 0) scale = 1;
+
+    uint16_t cur_x = x;
+    while (*str) {
+        char c = *str++;
+        if (c < 0x20 || c > 0x7E) c = ' ';
+        const uint8_t *glyph = s_font5x7[c - 0x20];
+
+        for (uint8_t col = 0; col < 5; col++) {
+            uint8_t line = glyph[col];
+            for (uint8_t row = 0; row < 7; row++) {
+                uint16_t pixel_color = (line & (1U << row)) ? color : bg;
+                LCD_FillRect(cur_x + col * scale,
+                             y + row * scale,
+                             cur_x + col * scale + scale - 1,
+                             y + row * scale + scale - 1,
+                             pixel_color);
+            }
+        }
+        cur_x += (5 + 1) * scale;  /* 5 列 + 1 列间距 */
+    }
 }
 
 /*

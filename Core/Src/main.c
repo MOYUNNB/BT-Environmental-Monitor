@@ -23,7 +23,18 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "app.h"
+#include "sensor_data.h"
+#include "bluetooth.h"
+#include "aht20.h"
+#include "ina226.h"
+#include "sd3078.h"
+#include "icm42688.h"
+#include "lcd.h"
+#include "lcd_page.h"
+#include "key.h"
+#include "ws2812.h"
+#include "tf_card.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -124,6 +135,11 @@ osMutexId_t xSemaphore_SensorDataHandle;
 const osMutexAttr_t xSemaphore_SensorData_attributes = {
   .name = "xSemaphore_SensorData"
 };
+/* Definitions for xSemaphore_SPI2 */
+osMutexId_t xSemaphore_SPI2Handle;
+const osMutexAttr_t xSemaphore_SPI2_attributes = {
+  .name = "xSemaphore_SPI2"
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -195,7 +211,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-
+  App_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -208,7 +224,8 @@ int main(void)
   xSemaphore_SensorDataHandle = osMutexNew(&xSemaphore_SensorData_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+  /* creation of xSemaphore_SPI2 */
+  xSemaphore_SPI2Handle = osMutexNew(&xSemaphore_SPI2_attributes);
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -221,10 +238,10 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of xQueue_SensorData */
-  xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(uint8_t), &xQueue_SensorData_attributes);
+  xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(SensorData_t), &xQueue_SensorData_attributes);
 
   /* creation of xQueue_BT_Command */
-  xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(uint8_t), &xQueue_BT_Command_attributes);
+  xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(BT_CmdPacket_t), &xQueue_BT_Command_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -481,7 +498,7 @@ static void MX_TIM5_Init(void)
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 0;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 209;
+  htim5.Init.Period = 104;   /* 84MHz / (104+1) = 800KHz for WS2812 */
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
@@ -693,10 +710,10 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
+  /* 系统监控任务: 打印调试信息 */
   for(;;)
   {
-    osDelay(1);
+    osDelay(5000);
   }
   /* USER CODE END 5 */
 }
@@ -711,10 +728,46 @@ void StartDefaultTask(void *argument)
 void StartSensorRead(void *argument)
 {
   /* USER CODE BEGIN StartSensorRead */
-  /* Infinite loop */
+  uint32_t seq = 0;
+
   for(;;)
   {
-    osDelay(1);
+    SensorData_t data = {0};
+    data.seq_num = seq++;
+
+    /* 1. 读取 SD3078 RTC 时间 */
+    SD3078_Time_t rtc;
+    if (SD3078_GetTime(&rtc) == SD3078_OK) {
+      data.timestamp.year    = rtc.year;
+      data.timestamp.month   = rtc.month;
+      data.timestamp.day     = rtc.day;
+      data.timestamp.hour    = rtc.hour;
+      data.timestamp.minute  = rtc.minute;
+      data.timestamp.second  = rtc.second;
+      data.sensors_ok |= SENSOR_OK_SD3078;
+    }
+
+    /* 2. 读取 AHT20 温湿度 */
+    if (AHT20_ReadData(&data.env.temperature, &data.env.humidity) == AHT20_OK) {
+      data.sensors_ok |= SENSOR_OK_AHT20;
+    }
+
+    /* 3. 读取 INA226 电源数据 */
+    if (INA226_ReadAll(&data.power.bus_voltage, &data.power.current, &data.power.power) == INA226_OK) {
+      data.sensors_ok |= SENSOR_OK_INA226;
+    }
+
+    /* 4. 读取 ICM42688 IMU */
+    if (ICM42688_ReadAccel(&data.imu.accel_x, &data.imu.accel_y, &data.imu.accel_z) == ICM42688_OK) {
+      ICM42688_ReadGyro(&data.imu.gyro_x, &data.imu.gyro_y, &data.imu.gyro_z);
+      ICM42688_ReadTemp(&data.imu.temp_c);
+      data.sensors_ok |= SENSOR_OK_ICM42688;
+    }
+
+    /* 5. 发布数据 (更新全局 + 推入队列) */
+    SensorData_Update(&data);
+
+    osDelay(100);
   }
   /* USER CODE END StartSensorRead */
 }
@@ -729,10 +782,16 @@ void StartSensorRead(void *argument)
 void StartLCDUpdate(void *argument)
 {
   /* USER CODE BEGIN StartLCDUpdate */
-  /* Infinite loop */
+  SensorData_t data;
+
   for(;;)
   {
-    osDelay(1);
+    /* 从队列取最新传感器数据 (阻塞 200ms) */
+    if (osMessageQueueGet(xQueue_SensorDataHandle, &data, NULL, 200) == osOK) {
+      LCD_Page_Refresh(&data);
+    }
+
+    osDelay(200);
   }
   /* USER CODE END StartLCDUpdate */
 }
@@ -747,10 +806,30 @@ void StartLCDUpdate(void *argument)
 void StartTFLog(void *argument)
 {
   /* USER CODE BEGIN StartTFLog */
-  /* Infinite loop */
+  SensorData_t data;
+  char timestamp[24];
+
   for(;;)
   {
-    osDelay(1);
+    /* 读取全局传感器数据 */
+    SensorData_Read(&data);
+
+    /* 构造时间戳 */
+    snprintf(timestamp, sizeof(timestamp), "%04u-%02u-%02u %02u:%02u:%02u",
+             (unsigned)data.timestamp.year, (unsigned)data.timestamp.month,
+             (unsigned)data.timestamp.day,
+             (unsigned)data.timestamp.hour, (unsigned)data.timestamp.minute,
+             (unsigned)data.timestamp.second);
+
+    /* 写入 CSV */
+    float accel[3] = {data.imu.accel_x, data.imu.accel_y, data.imu.accel_z};
+    float gyro[3]  = {data.imu.gyro_x, data.imu.gyro_y, data.imu.gyro_z};
+    TF_LogSensor(timestamp,
+                 data.env.temperature, data.env.humidity,
+                 data.power.bus_voltage, data.power.current, data.power.power,
+                 accel, gyro);
+
+    osDelay(1000);
   }
   /* USER CODE END StartTFLog */
 }
@@ -765,10 +844,25 @@ void StartTFLog(void *argument)
 void StartBluetooth(void *argument)
 {
   /* USER CODE BEGIN StartBluetooth */
-  /* Infinite loop */
+  SensorData_t data;
+  BT_CmdPacket_t cmd;
+
   for(;;)
   {
-    osDelay(1);
+    /* 1. 读取传感器数据并发送 */
+    SensorData_Read(&data);
+    BLUETOOTH_SendSensorData(data.env.temperature, data.env.humidity,
+                             data.power.bus_voltage, data.power.current, data.power.power);
+
+    /* 2. 检查蓝牙命令 */
+    if (BLUETOOTH_GetCmd(&cmd)) {
+      if (cmd.cmd == BT_CMD_SET_LED) {
+        WS2812_SetAll((uint8_t)cmd.r, (uint8_t)cmd.g, (uint8_t)cmd.b);
+        WS2812_Update();
+      }
+    }
+
+    osDelay(1000);
   }
   /* USER CODE END StartBluetooth */
 }
@@ -783,10 +877,27 @@ void StartBluetooth(void *argument)
 void StartKeyScan(void *argument)
 {
   /* USER CODE BEGIN StartKeyScan */
-  /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    KEY_Scan();
+
+    /* EC11 翻页 */
+    int8_t delta = EC11_GetDelta();
+    if (delta > 0) {
+      PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
+      LCD_Page_Switch(next);
+    } else if (delta < 0) {
+      PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
+      LCD_Page_Switch(prev);
+    }
+
+    /* 按键处理 */
+    KeyID_t key = KEY_GetPressed();
+    if (key == KEY_1) {
+      LCD_Page_Switch(PAGE_DATA);  /* KEY1 返回数据页 */
+    }
+
+    osDelay(10);
   }
   /* USER CODE END StartKeyScan */
 }
@@ -801,10 +912,31 @@ void StartKeyScan(void *argument)
 void StartWS2812(void *argument)
 {
   /* USER CODE BEGIN StartWS2812 */
-  /* Infinite loop */
+  SensorData_t data;
+
   for(;;)
   {
-    osDelay(1);
+    SensorData_Read(&data);
+    float t = data.env.temperature;
+
+    /* 温度映射颜色: 蓝→青→绿→黄→红 */
+    uint8_t r = 0, g = 0, b = 0;
+    if (t < 10.0f) {
+      r = 0;   g = 0;   b = 255;  /* 蓝色 (冷) */
+    } else if (t < 20.0f) {
+      r = 0;   g = 255; b = 255;  /* 青色 */
+    } else if (t < 30.0f) {
+      r = 0;   g = 255; b = 0;    /* 绿色 (舒适) */
+    } else if (t < 40.0f) {
+      r = 255; g = 255; b = 0;    /* 黄色 */
+    } else {
+      r = 255; g = 0;   b = 0;    /* 红色 (热) */
+    }
+
+    WS2812_SetAll(r, g, b);
+    WS2812_Update();
+
+    osDelay(1000);
   }
   /* USER CODE END StartWS2812 */
 }

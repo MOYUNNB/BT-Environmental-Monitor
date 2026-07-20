@@ -212,24 +212,11 @@ void WS2812_WaitReady(void)
 void WS2812_Init(void)
 {
     s_busy = 0U;
-    /*
-     * TODO: 清空缓冲区 → 调 WS2812_SetAll(0,0,0) → Update → WaitReady
-     *
-     * // 清空缓冲区
-     * for (uint16_t i = 0; i < WS2812_BUF_LEN; i++) {
-     *     s_buffer[i] = 0;
-     * }
-     *
-     * // 等同于 WS2812_SetAll(0, 0, 0) + WS2812_Update()
-     * // 因为缓冲区已全零, 发送出去就是全部熄灭
-     * WS2812_Update();
-     * WS2812_WaitReady();
-     *
-     * 或者更简洁:
-     * WS2812_SetAll(0, 0, 0); // 所有灯设为黑色 (不亮)
-     * WS2812_Update();         // 发送到 WS2812
-     * WS2812_WaitReady();      // 等待发送完成
-     */
+    for (uint16_t i = 0; i < WS2812_BUF_LEN; i++) {
+        s_buffer[i] = 0;
+    }
+    WS2812_Update();
+    WS2812_WaitReady();
 }
 
 /*
@@ -264,22 +251,13 @@ void WS2812_Init(void)
  */
 void WS2812_SetPixel(uint8_t index, uint8_t r, uint8_t g, uint8_t b)
 {
-    /*
-     * TODO: 将颜色编码到缓冲区
-     *
-     * if (index >= WS2812_NUM) return;
-     *
-     * uint32_t color = ((uint32_t)g << 16) | ((uint32_t)r << 8) | b;  // GRB
-     * uint32_t *buf = &s_buffer[WS2812_RESET_LEN + index * 24U];
-     * for (int8_t bit = 23; bit >= 0; bit--) {
-     *     *buf++ = (color & (1UL << bit)) ? WS2812_T1H : WS2812_T0H;
-     * }
-     *
-     * 注意: 循环变量用 int8_t 而不是 uint8_t!
-     * 因为循环条件是 bit >= 0, 如果用 uint8_t,
-     * 0 减 1 会变成 255, 变成死循环!
-     */
-    (void)index; (void)r; (void)g; (void)b;
+    if (index >= WS2812_NUM) return;
+
+    uint32_t color = ((uint32_t)g << 16) | ((uint32_t)r << 8) | (uint32_t)b;  /* GRB 格式 */
+    uint32_t *buf = &s_buffer[WS2812_RESET_LEN + (uint32_t)index * 24U];
+    for (int8_t bit = 23; bit >= 0; bit--) {
+        *buf++ = (color & (1UL << (uint32_t)bit)) ? WS2812_T1H : WS2812_T0H;
+    }
 }
 
 /*
@@ -308,14 +286,9 @@ void WS2812_SetPixel(uint8_t index, uint8_t r, uint8_t g, uint8_t b)
  */
 void WS2812_SetAll(uint8_t r, uint8_t g, uint8_t b)
 {
-    /*
-     * TODO: for 循环调 SetPixel
-     *
-     * for (uint8_t i = 0; i < WS2812_NUM; i++) {
-     *     WS2812_SetPixel(i, r, g, b);
-     * }
-     */
-    (void)r; (void)g; (void)b;
+    for (uint8_t i = 0; i < WS2812_NUM; i++) {
+        WS2812_SetPixel(i, r, g, b);
+    }
 }
 
 /*
@@ -349,21 +322,22 @@ void WS2812_SetAll(uint8_t r, uint8_t g, uint8_t b)
  */
 void WS2812_Update(void)
 {
-    /*
-     * TODO:
-     * WS2812_WaitReady();
-     * s_busy = 1;
-     * HAL_TIM_PWM_Start_DMA(WS2812_TIM, WS2812_CHANNEL,
-     *                       (uint32_t*)s_buffer, WS2812_BUF_LEN);
-     *
-     * 注意: HAL_TIM_PWM_Start_DMA 的第三个参数类型是 uint32_t*,
-     * s_buffer 本身就是 uint32_t[] 类型, 可以直接传入。
-     * 第四个参数是传输长度 (元素个数), 需要和 DMA 通道宽度一致。
-     * 如果 DMA 配置为半字 (16-bit), 需要将 s_buffer 改为 uint16_t[],
-     * 并将长度乘以 2 (因为每个 32-bit 值拆成了 2 个 16-bit)。
-     *
-     * 出于简化, 本驱动假设 DMA 配置为字 (32-bit) 传输。
-     */
+    WS2812_WaitReady();
+    s_busy = 1;
+    HAL_TIM_PWM_Start_DMA(WS2812_TIM, WS2812_CHANNEL,
+                          (uint32_t*)s_buffer, WS2812_BUF_LEN);
+}
+
+/*
+ * PWM 传输完成回调: 停止 PWM + 清除忙标志
+ * HAL 弱函数, 定义在这里自动覆盖默认实现
+ */
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM5) {
+        HAL_TIM_PWM_Stop_DMA(WS2812_TIM, WS2812_CHANNEL);
+        s_busy = 0;
+    }
 }
 
 /*

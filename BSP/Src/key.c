@@ -382,55 +382,38 @@ void KEY_Init(void)
  */
 void KEY_Scan(void)
 {
-    /*
-     * TODO: 1. 读三个按键原始电平
-     *       2. 状态机: 原始值 == 稳定值 ? count++ : count=0, 更新稳定值
-     *       3. count >= 3 且 稳定值=0(按下) → 记录按键到 s_pressed
-     *       4. EC11: 读 AB → 查表 → 累计到 s_ec11_delta
-     *
-     * 参考实现:
-     *
-     * // === 按键消抖 ===
-     * for (uint8_t i = 0; i < 3; i++) {
-     *     uint8_t level = key_read_raw(i);
-     *     if (level == s_keys[i].stable) {
-     *         s_keys[i].count++;
-     *         if (s_keys[i].count >= KEY_SAMPLE_CNT) {
-     *             // 稳定状态已确认, 触发按键按下事件
-     *             if (s_keys[i].stable == 0) {
-     *                 s_pressed = (KeyID_t)(KEY_1 + i);
-     *             }
-     *         }
-     *     } else {
-     *         s_keys[i].raw = level;
-     *         s_keys[i].count = 0;
-     *         // 注意: 这里没有更新 s_keys[i].stable!
-     *         // 只有 level 和 raw 不同, 还没确认变化。
-     *         // 真正更新是在连续 N 次一致时。
-     *     }
-     * }
-     *
-     * // === EC11 解码 ===
-     * uint8_t ab = ec11_read_ab();
-     * if (ab != s_ec11_last_ab) {
-     *     uint8_t idx = (uint8_t)((s_ec11_last_ab << 2) | ab);
-     *     s_ec11_delta += ec11_table[idx];
-     *     s_ec11_last_ab = ab;
-     * }
-     *
-     * 思考: 上面的按键消抖代码有一个小 bug。
-     * 在 "level == stable" 分支中, 即使 stable=0 (已确认按下),
-     * count 一直在增加, 每次都会触发 s_pressed 赋值。
-     * 这样长按时会重复触发!
-     *
-     * 修正方法:
-     *   在 count >= KEY_SAMPLE_CNT 后,
-     *   将 count 重置为 KEY_SAMPLE_CNT - 1 (或 0),
-     *   然后添加一个 "触发标志" 防止重复。
-     *   或者更简单的: 只在 stable 从 1 变为 0 时触发。
-     *
-     *   具体实现留给你思考!
-     */
+    /* === 按键消抖状态机 === */
+    for (uint8_t i = 0; i < 3; i++) {
+        uint8_t level = key_read_raw(i);
+        if (level == s_keys[i].stable) {
+            /* 和稳定状态一致, 计数值递增 */
+            if (s_keys[i].count < KEY_SAMPLE_CNT) {
+                s_keys[i].count++;
+            }
+            /* 连续采样一致 → 确认是稳定状态 */
+            if (s_keys[i].count >= KEY_SAMPLE_CNT) {
+                /* 只在从释放(1)变为按下(0)时触发, 防止长按重复 */
+                if (s_keys[i].stable == 0 && s_keys[i].count == KEY_SAMPLE_CNT) {
+                    s_pressed = (KeyID_t)(KEY_1 + i);
+                }
+                /* 保持 count 为 KEY_SAMPLE_CNT, 下次变化时会清零重新开始 */
+            }
+        } else {
+            /* 不一致 → 可能是抖动或真正变化, 更新采样值, 计数器清零 */
+            s_keys[i].raw = level;
+            s_keys[i].count = 0;
+            /* 更新稳定状态 (连续一致才会确认变化) */
+            s_keys[i].stable = level;
+        }
+    }
+
+    /* === EC11 查表解码 === */
+    uint8_t ab = ec11_read_ab();
+    if (ab != s_ec11_last_ab) {
+        uint8_t idx = (uint8_t)((s_ec11_last_ab << 2) | ab);
+        s_ec11_delta += ec11_table[idx];
+        s_ec11_last_ab = ab;
+    }
 }
 
 /*

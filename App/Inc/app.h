@@ -11,7 +11,22 @@
 extern "C" {
 #endif
 
-/* TODO: 在此添加应用层初始化接口声明 */
+#include "sensor_data.h"
+#include "app_conf.h"
+#include <stdint.h>
+
+/**
+ * @brief   应用初始化: 初始化所有 BSP 驱动
+ * @note    在 osKernelInitialize() 之前调用 (裸机阶段)
+ *          初始化顺序: LCD → KEY → WS2812 → BLUETOOTH → TF
+ */
+void App_Init(void);
+
+/**
+ * @brief   获取 xSemaphore_SPI2 互斥锁句柄
+ * @note    供 BSP 驱动传递信号量指针
+ */
+void *App_GetSPI2Mutex(void);
 
 #ifdef __cplusplus
 }

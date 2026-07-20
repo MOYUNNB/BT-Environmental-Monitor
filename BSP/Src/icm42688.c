@@ -313,47 +313,42 @@ ICM42688_Status_t ICM42688_Init(SPI_HandleTypeDef *hspi, void *pSemaphore)
     cs_deselect();
     HAL_Delay(1U);
 
-    /*
-     * TODO: 按上述步骤实现
-     *
-     * 参考代码框架:
-     *
-     * uint8_t whoami = 0;
-     * ICM42688_Status_t ret;
-     *
-     * // 1. 切到 Bank 0 + 软复位
-     * ret = icm42688_write_reg(0x76, 0x00);  // BANK_SEL = Bank 0
-     * if (ret != ICM42688_OK) return ret;
-     *
-     * ret = icm42688_write_reg(0x11, 0x01);  // DEVICE_CONFIG 软复位
-     * if (ret != ICM42688_OK) return ret;
-     * HAL_Delay(10);
-     *
-     * // 2. 读 WHO_AM_I
-     * ret = icm42688_read_regs(0x75, &whoami, 1);
-     * if (ret != ICM42688_OK) return ret;
-     * if (whoami != ICM42688_WHO_AM_I_VALUE) return ICM42688_ERR_NOT_FOUND;
-     *
-     * // 3. 配置电源模式
-     * ret = icm42688_write_reg(0x4E, 0x0F);
-     * if (ret != ICM42688_OK) return ret;
-     * HAL_Delay(50);
-     *
-     * // 4. 配置量程和 ODR
-     * // ACCEL_CONFIG0: ±16G, 1kHz
-     * ret = icm42688_write_reg(0x50, (ICM42688_ACCEL_FSR_16G << 5) | 0x07);
-     * if (ret != ICM42688_OK) return ret;
-     * s_accel_lsb = 2048.0f;  // 根据数据手册确认! ±16G 时的灵敏度
-     *
-     * // GYRO_CONFIG0: ±2000dps, 1kHz
-     * ret = icm42688_write_reg(0x4F, (ICM42688_GYRO_FSR_2000DPS << 5) | 0x07);
-     * if (ret != ICM42688_OK) return ret;
-     * s_gyro_lsb = 16.4f;  // 根据数据手册确认! ±2000dps 时的灵敏度
-     *
-     * return ICM42688_OK;
-     */
+    uint8_t whoami = 0;
+    ICM42688_Status_t ret;
 
-    return ICM42688_ERR_SPI; /* 临时占位, 请替换 */
+    spi_lock();
+
+    /* 1. 切到 Bank 0 */
+    ret = icm42688_write_reg(0x76, 0x00);
+    if (ret != ICM42688_OK) { spi_unlock(); return ret; }
+
+    /* 2. 软复位 */
+    ret = icm42688_write_reg(0x11, 0x01);
+    if (ret != ICM42688_OK) { spi_unlock(); return ret; }
+    HAL_Delay(10);
+
+    /* 3. 读取 WHO_AM_I 校验 */
+    ret = icm42688_read_regs(0x75, &whoami, 1);
+    if (ret != ICM42688_OK) { spi_unlock(); return ret; }
+    if (whoami != ICM42688_WHO_AM_I_VALUE) { spi_unlock(); return ICM42688_ERR_NOT_FOUND; }
+
+    /* 4. 配置电源模式: 加速度+陀螺仪低噪声 */
+    ret = icm42688_write_reg(0x4E, 0x0F);
+    if (ret != ICM42688_OK) { spi_unlock(); return ret; }
+    HAL_Delay(50);
+
+    /* 5. 配置加速度计量程 ±16G, 1kHz ODR */
+    ret = icm42688_write_reg(0x50, (ICM42688_ACCEL_FSR_16G << 5) | 0x07);
+    if (ret != ICM42688_OK) { spi_unlock(); return ret; }
+    s_accel_lsb = 2048.0f;
+
+    /* 6. 配置陀螺仪量程 ±2000dps, 1kHz ODR */
+    ret = icm42688_write_reg(0x4F, (ICM42688_GYRO_FSR_2000DPS << 5) | 0x07);
+    if (ret != ICM42688_OK) { spi_unlock(); return ret; }
+    s_gyro_lsb = 16.4f;
+
+    spi_unlock();
+    return ICM42688_OK;
 }
 
 /*
@@ -401,37 +396,22 @@ ICM42688_Status_t ICM42688_Init(SPI_HandleTypeDef *hspi, void *pSemaphore)
  */
 ICM42688_Status_t ICM42688_ReadAccel(float *x, float *y, float *z)
 {
-    /*
-     * TODO: 按上述方案实现
-     *
-     * 参考代码框架 (方案 A):
-     *
-     * uint8_t buf[6];
-     * ICM42688_Status_t ret;
-     *
-     * spi_lock();
-     * ret = icm42688_read_regs(0x1F, buf, 6);  // 1F = ACCEL_DATA_X1
-     * spi_unlock();
-     * if (ret != ICM42688_OK) return ret;
-     *
-     * int16_t raw_x = (int16_t)((buf[0] << 8) | buf[1]);
-     * int16_t raw_y = (int16_t)((buf[2] << 8) | buf[3]);
-     * int16_t raw_z = (int16_t)((buf[4] << 8) | buf[5]);
-     *
-     * *x = (float)raw_x / s_accel_lsb;
-     * *y = (float)raw_y / s_accel_lsb;
-     * *z = (float)raw_z / s_accel_lsb;
-     *
-     * return ICM42688_OK;
-     *
-     * 思考: 返回值如何使用? 在 lcd_page.c 中:
-     *   float ax, ay, az;
-     *   if (ICM42688_ReadAccel(&ax, &ay, &az) == ICM42688_OK) {
-     *       snprintf(buf, ... "%.2f g", ax);
-     *   }
-     */
-    (void)x; (void)y; (void)z;
-    return ICM42688_ERR_SPI;
+    uint8_t buf[6];
+
+    spi_lock();
+    ICM42688_Status_t ret = icm42688_read_regs(0x1F, buf, 6);
+    spi_unlock();
+    if (ret != ICM42688_OK) return ret;
+
+    int16_t raw_x = (int16_t)((uint16_t)(buf[0]) << 8U | buf[1]);
+    int16_t raw_y = (int16_t)((uint16_t)(buf[2]) << 8U | buf[3]);
+    int16_t raw_z = (int16_t)((uint16_t)(buf[4]) << 8U | buf[5]);
+
+    if (x != NULL) *x = (float)raw_x / s_accel_lsb;
+    if (y != NULL) *y = (float)raw_y / s_accel_lsb;
+    if (z != NULL) *z = (float)raw_z / s_accel_lsb;
+
+    return ICM42688_OK;
 }
 
 /*
@@ -485,33 +465,22 @@ ICM42688_Status_t ICM42688_ReadAccel(float *x, float *y, float *z)
  */
 ICM42688_Status_t ICM42688_ReadGyro(float *x, float *y, float *z)
 {
-    /*
-     * TODO: 实现陀螺仪读取
-     *
-     * 实现方法和 ReadAccel 几乎一样, 只是地址和偏移不同:
-     *
-     * // 方法 1: 单独读取 (从 0x25 开始读 6 字节)
-     * uint8_t buf[6];
-     * spi_lock();
-     * ICM42688_Status_t ret = icm42688_read_regs(0x25, buf, 6);
-     * spi_unlock();
-     * if (ret != ICM42688_OK) return ret;
-     *
-     * int16_t raw_x = (int16_t)((buf[0] << 8) | buf[1]);
-     * int16_t raw_y = (int16_t)((buf[2] << 8) | buf[3]);
-     * int16_t raw_z = (int16_t)((buf[4] << 8) | buf[5]);
-     *
-     * *x = (float)raw_x / s_gyro_lsb;
-     * *y = (float)raw_y / s_gyro_lsb;
-     * *z = (float)raw_z / s_gyro_lsb;
-     *
-     * return ICM42688_OK;
-     *
-     * // 方法 2: 共用 14 字节读取 (推荐, 需要设计数据共享)
-     * // 见上方注释中的设计方案
-     */
-    (void)x; (void)y; (void)z;
-    return ICM42688_ERR_SPI;
+    uint8_t buf[6];
+
+    spi_lock();
+    ICM42688_Status_t ret = icm42688_read_regs(0x25, buf, 6);
+    spi_unlock();
+    if (ret != ICM42688_OK) return ret;
+
+    int16_t raw_x = (int16_t)((uint16_t)(buf[0]) << 8U | buf[1]);
+    int16_t raw_y = (int16_t)((uint16_t)(buf[2]) << 8U | buf[3]);
+    int16_t raw_z = (int16_t)((uint16_t)(buf[4]) << 8U | buf[5]);
+
+    if (x != NULL) *x = (float)raw_x / s_gyro_lsb;
+    if (y != NULL) *y = (float)raw_y / s_gyro_lsb;
+    if (z != NULL) *z = (float)raw_z / s_gyro_lsb;
+
+    return ICM42688_OK;
 }
 
 /*
@@ -547,31 +516,17 @@ ICM42688_Status_t ICM42688_ReadGyro(float *x, float *y, float *z)
  */
 ICM42688_Status_t ICM42688_ReadTemp(float *temp_c)
 {
-    /*
-     * TODO: 实现温度读取
-     *
-     * 参考代码框架:
-     *
-     * uint8_t buf[2];
-     * ICM42688_Status_t ret;
-     *
-     * spi_lock();
-     * ret = icm42688_read_regs(0x1D, buf, 2);  // TEMP_DATA1~2
-     * spi_unlock();
-     * if (ret != ICM42688_OK) return ret;
-     *
-     * int16_t raw = (int16_t)((buf[0] << 8) | buf[1]);
-     * *temp_c = (float)raw / 132.48f + 25.0f;
-     *
-     * return ICM42688_OK;
-     *
-     * 思考: 如果 ReadAccel 和 ReadGyro 已经用了 14 字节读取,
-     * 那温度数据就已经有了, 为什么还要单独读一次?
-     * 所以更好的设计是: ReadAccel 和 ReadGyro 共享数据,
-     * ReadTemp 直接读缓存。
-     */
-    (void)temp_c;
-    return ICM42688_ERR_SPI;
+    uint8_t buf[2];
+
+    spi_lock();
+    ICM42688_Status_t ret = icm42688_read_regs(0x1D, buf, 2);
+    spi_unlock();
+    if (ret != ICM42688_OK) return ret;
+
+    int16_t raw = (int16_t)((uint16_t)(buf[0]) << 8U | buf[1]);
+    if (temp_c != NULL) *temp_c = (float)raw / 132.48f + 25.0f;
+
+    return ICM42688_OK;
 }
 
 /*

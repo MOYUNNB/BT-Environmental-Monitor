@@ -72,12 +72,14 @@ if(APP_Src)
     target_sources(APP PRIVATE ${APP_Src})
     target_include_directories(APP PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/App/Inc
+        ${CMAKE_CURRENT_SOURCE_DIR}/BSP/Inc
     )
-    target_link_libraries(APP PUBLIC stm32cubemx)
+    target_link_libraries(APP PUBLIC stm32cubemx BSP)
 else()
     add_library(APP INTERFACE)
     target_include_directories(APP INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR}/App/Inc
+        ${CMAKE_CURRENT_SOURCE_DIR}/BSP/Inc
     )
     target_link_libraries(APP INTERFACE stm32cubemx)
 endif()

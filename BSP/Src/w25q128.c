@@ -29,6 +29,7 @@
 
 #define DEFAULT_TIMEOUT         1000U
 #define ERASE_TIMEOUT           5000U   /* 扇区擦除最长 ~400ms, 留余量 */
+#define PROGRAM_TIMEOUT         1000U   /* 页编程最长 ~5ms, 留余量 */
 
 static SPI_HandleTypeDef *s_hspi = NULL;
 static void              *s_sem  = NULL;
