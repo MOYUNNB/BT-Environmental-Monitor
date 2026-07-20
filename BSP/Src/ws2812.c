@@ -324,8 +324,11 @@ void WS2812_Update(void)
 {
     WS2812_WaitReady();
     s_busy = 1;
-    HAL_TIM_PWM_Start_DMA(WS2812_TIM, WS2812_CHANNEL,
-                          (uint32_t*)s_buffer, WS2812_BUF_LEN);
+    if (HAL_TIM_PWM_Start_DMA(WS2812_TIM, WS2812_CHANNEL,
+                               (uint32_t*)s_buffer, WS2812_BUF_LEN) != HAL_OK) {
+        /* DMA 未配置或配置错误, 清除忙标志避免死锁 */
+        s_busy = 0;
+    }
 }
 
 /*

@@ -42,7 +42,8 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+/* TIM5_CH4 PWM DMA 句柄 (供 stm32f4xx_it.c 中 IRQ handler 使用) */
+DMA_HandleTypeDef hdma_tim5_ch4;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -381,7 +382,7 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
   if(htim_base->Instance==TIM5)
   {
     /* USER CODE BEGIN TIM5_MspInit 0 */
-
+    __HAL_RCC_DMA2_CLK_ENABLE();
     /* USER CODE END TIM5_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_TIM5_CLK_ENABLE();
@@ -389,7 +390,8 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
     HAL_NVIC_SetPriority(TIM5_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(TIM5_IRQn);
     /* USER CODE BEGIN TIM5_MspInit 1 */
-
+    HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
     /* USER CODE END TIM5_MspInit 1 */
 
   }
@@ -402,7 +404,21 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim)
   if(htim->Instance==TIM5)
   {
     /* USER CODE BEGIN TIM5_MspPostInit 0 */
-
+    /* TIM5_CH4 PWM DMA 配置: DMA2_Stream5, Channel 7, Memory-to-Periph */
+    hdma_tim5_ch4.Instance = DMA2_Stream5;
+    hdma_tim5_ch4.Init.Channel = DMA_CHANNEL_7;
+    hdma_tim5_ch4.Init.Direction = DMA_MEMORY_TO_PERIPH;
+    hdma_tim5_ch4.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_tim5_ch4.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_tim5_ch4.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    hdma_tim5_ch4.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+    hdma_tim5_ch4.Init.Mode = DMA_NORMAL;
+    hdma_tim5_ch4.Init.Priority = DMA_PRIORITY_HIGH;
+    hdma_tim5_ch4.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+    if (HAL_DMA_Init(&hdma_tim5_ch4) != HAL_OK) {
+        Error_Handler();
+    }
+    __HAL_LINKDMA(htim, hdma[TIM_DMA_ID_CC4], hdma_tim5_ch4);
     /* USER CODE END TIM5_MspPostInit 0 */
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
