@@ -178,13 +178,44 @@ void WS2812_Init(void)
 }
 ```
 
-### 问题 4：osDelay 在调度器启动前崩溃
+### 问题 4：信号量传参错误导致内核启动后崩溃（最隐蔽的 bug）
 
-这是第二个卡死点。传感器初始化（AHT20_Init 等）在 `App_Init()` 中执行，里面使用了 `osDelay(40)`。但 `App_Init()` 在 `osKernelInitialize()` 之前调用，FreeRTOS 调度器没启动时调用 `vTaskDelay` 会触发 `configASSERT` → 关中断 → 死循环 → 看门狗复位。
+传感器 Init 成功（AHT20 OK、INA226 OK、SD3078 OK、ICM42688 OK），但 `StartSensorRead` 任务第一次调用 `AHT20_Init` 时立即崩溃。
 
-**排查过程：** 串口输出显示 WS2812 和蓝牙 Init OK，但下一行 `[AHT20]` 不出现，10 秒后复位。说明卡在 AHT20_Init 内部。
+**根因：** 信号量传参多了一层间接引用。`osMutexId_t` 本身就是指针类型（`void *`），但调用处写的是：
 
-**修复：** 所有 I2C 传感器和 TF 卡的初始化移到 `StartSensorRead` 任务的首次运行中执行，此时内核已在运行：
+```c
+// ❌ 错误: &xSemaphore_I2CHandle 传的是指针的地址
+AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle);
+
+// ✓ 正确: xSemaphore_I2CHandle 本身就是指针
+AHT20_Init(&hi2c1, (void *)xSemaphore_I2CHandle);
+```
+
+`i2c_lock()` 内部把传入的 `s_sem` 直接当 `osSemaphoreId_t` 使用：
+```c
+osSemaphoreAcquire((osSemaphoreId_t)s_sem, osWaitForever);
+```
+传了 `&handle` 给到 `s_sem` 后，`osSemaphoreAcquire` 拿到的是"指针的地址"而非"指针的值"，访问了无效内存 → 崩溃。
+
+**为什么 App_Init 阶段没崩溃？** 因为那时 `xSemaphore_I2CHandle` 还是 NULL（`osMutexNew()` 还没调用），`&xSemaphore_I2CHandle` 取的是全局变量的地址（非 NULL），`i2c_lock` 尝试获取一个不存在的信号量 → 行为未定义但没触发立即崩溃。
+
+**修复：**
+
+1. 传参修正：`(void *)xSemaphore_I2CHandle` 而不是 `&xSemaphore_I2CHandle`
+2. 所有传感器 Init 移到内核启动后的任务中执行
+
+### 问题 5：printf 浮点数显示空白
+
+传感器数值打印为 `T=C H=%`，`%f` 格式输出为空。
+
+**根因：** newlib nano 默认禁用浮点数打印以节省空间。`%f` 格式化时直接输出空字符串。
+
+**修复：** 在 CMakeLists.txt 中添加链接选项：
+```cmake
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,-u,_printf_float)
+```
+代价：Flash 增加 ~9KB，RAM 增加 ~400 字节。
 
 ```c
 void StartSensorRead(void *argument)
@@ -359,8 +390,8 @@ CubeMX 生成了 HAL 配置 + FreeRTOS 任务框架 + FATFS 中间件，但：
 | 问题 | 根因 | 修复 |
 |------|------|------|
 | 系统启动后卡死 | WS2812 的 DMA 未配置，`HAL_TIM_PWM_Start_DMA` 失败后 `s_busy` 卡死 | 手动添加 DMA2_Stream5 配置 + 失败时清 `s_busy` |
-| DMA 启动了但传输不完成 | TIM5 计数器没启动，无 PWM 更新事件，DMA 不触发 | `HAL_TIM_Base_Start()` 强制启动计数器 |
-| 传感器 Init 卡死，10 秒后复位 | `osDelay()` 在调度器启动前调用触发断言 | Init 移到 `StartSensorRead` 首次运行中 |
+| DMA 启动了但传输不完成 | TIM5 计数器没启动，无 PWM 更新事件，DMA 不触发 | `HAL_TIM_Base_Start()` + `HAL_TIM_PWM_Start()` |
+| 传感器 Init 卡死，10 秒后复位 | `(void *)&xSemaphore_I2CHandle` 多一层间接引用，信号量传参错误 | 改为 `(void *)xSemaphore_I2CHandle` |
 | TIM5 PWM 频率错误 | CubeMX 默认 Period=209（400KHz），WS2812 需要 800KHz | Period 改为 104 |
 | I2C 队列大小=1字节 | CubeMX 生成 `sizeof(uint8_t)` 作为队列元素大小 | 改为 `sizeof(SensorData_t)` |
 | SPI2 无互斥锁 | ICM42688 和 W25Q128 共享 SPI2 总线 | 添加 `xSemaphore_SPI2` |
