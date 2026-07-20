@@ -17,6 +17,7 @@
  * 参考: 嘉立创 fdb-master/0_example/RGB/ws2812-onboard-pa3-project
  */
 #include "ws2812.h"
+#include <stdio.h>
 
 /*
  * ============================================================
@@ -211,12 +212,20 @@ void WS2812_WaitReady(void)
  */
 void WS2812_Init(void)
 {
+    printf("[WS2812dbg] step1: clear buf... ");
     s_busy = 0U;
     for (uint16_t i = 0; i < WS2812_BUF_LEN; i++) {
         s_buffer[i] = 0;
     }
+    printf("OK\r\n");
+
+    printf("[WS2812dbg] step2: Update... ");
     WS2812_Update();
+    printf("OK (busy=%d)\r\n", (int)s_busy);
+
+    printf("[WS2812dbg] step3: WaitReady... ");
     WS2812_WaitReady();
+    printf("OK\r\n");
 }
 
 /*
