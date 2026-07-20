@@ -140,7 +140,7 @@ CubeMX 生成的 TIM5 Period = 209，得到 400KHz PWM。但 WS2812 需要 800KH
 
 这是导致系统卡死的根本原因。`HAL_TIM_PWM_Start_DMA()` 返回 `HAL_ERROR`，但返回值被忽略。`s_busy` 被设为 1 后永远无法清除，`WS2812_WaitReady()` 陷入死循环。
 
-**修复：**
+**修复：** 手动添加 DMA2_Stream5 配置 + 失败时清 s_busy：
 
 ```c
 if (HAL_TIM_PWM_Start_DMA(...) != HAL_OK) {
@@ -158,6 +158,48 @@ hdma_tim5_ch4.Init.Channel = DMA_CHANNEL_7;
 hdma_tim5_ch4.Init.Direction = DMA_MEMORY_TO_PERIPH;
 // ...
 __HAL_LINKDMA(htim, hdma[TIM_DMA_ID_CC4], hdma_tim5_ch4);
+```
+
+### 问题 3：TIM5 计数器未启动
+
+即使 DMA 配置正确，`HAL_TIM_PWM_Start_DMA` 也不会启动 TIM 计数器（内部逻辑判断条件导致 `__HAL_TIM_ENABLE` 未执行）。没有 PWM 更新事件 → DMA 不触发 → 传输永远不完成。
+
+**排查过程：** 在 WS2812_Init 内部逐步加 printf，发现 `HAL_TIM_PWM_Start_DMA` 返回了 HAL_OK（DMA 配置成功），但 `s_busy` 一直 =1，等待 10.7 秒后看门狗复位。
+
+**修复：** 在 WS2812_Init 中显式启动计数器：
+
+```c
+void WS2812_Init(void)
+{
+    // ...
+    HAL_TIM_Base_Start(WS2812_TIM);  // 强制启动 TIM 计数器
+    WS2812_Update();
+    WS2812_WaitReady();
+}
+```
+
+### 问题 4：osDelay 在调度器启动前崩溃
+
+这是第二个卡死点。传感器初始化（AHT20_Init 等）在 `App_Init()` 中执行，里面使用了 `osDelay(40)`。但 `App_Init()` 在 `osKernelInitialize()` 之前调用，FreeRTOS 调度器没启动时调用 `vTaskDelay` 会触发 `configASSERT` → 关中断 → 死循环 → 看门狗复位。
+
+**排查过程：** 串口输出显示 WS2812 和蓝牙 Init OK，但下一行 `[AHT20]` 不出现，10 秒后复位。说明卡在 AHT20_Init 内部。
+
+**修复：** 所有 I2C 传感器和 TF 卡的初始化移到 `StartSensorRead` 任务的首次运行中执行，此时内核已在运行：
+
+```c
+void StartSensorRead(void *argument)
+{
+    /* 首次运行: 内核已启动, osDelay 和信号量正常 */
+    AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle);
+    INA226_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, 15.0f);
+    SD3078_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, NULL);
+    ICM42688_Init(&hspi2, (void *)&xSemaphore_SPI2Handle);
+    TF_Init();
+
+    for(;;) {
+        // 正常传感器读取循环
+    }
+}
 ```
 
 ### 面试亮点
@@ -317,6 +359,8 @@ CubeMX 生成了 HAL 配置 + FreeRTOS 任务框架 + FATFS 中间件，但：
 | 问题 | 根因 | 修复 |
 |------|------|------|
 | 系统启动后卡死 | WS2812 的 DMA 未配置，`HAL_TIM_PWM_Start_DMA` 失败后 `s_busy` 卡死 | 手动添加 DMA2_Stream5 配置 + 失败时清 `s_busy` |
+| DMA 启动了但传输不完成 | TIM5 计数器没启动，无 PWM 更新事件，DMA 不触发 | `HAL_TIM_Base_Start()` 强制启动计数器 |
+| 传感器 Init 卡死，10 秒后复位 | `osDelay()` 在调度器启动前调用触发断言 | Init 移到 `StartSensorRead` 首次运行中 |
 | TIM5 PWM 频率错误 | CubeMX 默认 Period=209（400KHz），WS2812 需要 800KHz | Period 改为 104 |
 | I2C 队列大小=1字节 | CubeMX 生成 `sizeof(uint8_t)` 作为队列元素大小 | 改为 `sizeof(SensorData_t)` |
 | SPI2 无互斥锁 | ICM42688 和 W25Q128 共享 SPI2 总线 | 添加 `xSemaphore_SPI2` |
@@ -356,10 +400,12 @@ CubeMX 生成了 HAL 配置 + FreeRTOS 任务框架 + FATFS 中间件，但：
 
 ### Q5：最难的 bug 是什么？
 
-WS2812 的 DMA 配置缺失问题。输出表现为"上电后 LCD 亮了一下就死机"，排查过程：
-1. printf 定位到 WS2812_Init 卡住
-2. 分析 WS2812_WaitReady() 死循环
-3. 发现 s_busy 没有被清除
-4. 回溯到 HAL_TIM_PWM_Start_DMA 返回错误
-5. 查看 CubeMX 发现 TIM5 没有配置 DMA
-6. 手动添加 DMA2_Stream5 配置 + 中断处理
+WS2812 的问题，涉及**3 层嵌套 bug**，每个修复后都会暴露下一个，排查了一整个下午：
+
+**第一层：** 上电后卡死，printf 定位到 WS2812_WaitReady() 死循环 → `s_busy` 没被清除 → `HAL_TIM_PWM_Start_DMA` 返回失败 → CubeMX 没生成 DMA 配置。**修复：** 手动加 DMA2_Stream5 + 错误处理。
+
+**第二层：** DMA 配置好后，`HAL_TIM_PWM_Start_DMA` 返回了 HAL_OK，但 `s_busy` 永远 =1 → 用逐步 printf 发现 DMA 传输从未完成 → TIM5 计数器没启动，PWM 没有更新事件，DMA 不触发。**修复：** `HAL_TIM_Base_Start()` 强制启动计数器。
+
+**第三层：** 过了 WS2812 后，AHT20_Init 又卡住，10 秒后看门狗复位 → `osDelay(40)` 在 FreeRTOS 调度器启动前调用，触发 `configASSERT` → 关中断死循环。**修复：** 所有传感器初始化移到任务体首次运行中。
+
+排查工具：串口 printf 逐步打印 + 看门狗复位时间推断卡死位置 + HAL 源码阅读确认 API 行为。
