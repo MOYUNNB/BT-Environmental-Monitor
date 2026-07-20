@@ -61,37 +61,8 @@ void App_Init(void)
     BLUETOOTH_Init(&huart2);
     printf("OK\r\n");
 
-    /* 5. 传感器初始化 */
-    printf("[AHT20] Init... ");
-    if (AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle) == AHT20_OK)
-        printf("OK\r\n");
-    else
-        printf("FAIL\r\n");
-
-    printf("[INA226] Init... ");
-    if (INA226_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, 15.0f) == INA226_OK)
-        printf("OK\r\n");
-    else
-        printf("FAIL\r\n");
-
-    printf("[SD3078] Init... ");
-    if (SD3078_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, NULL) == SD3078_OK)
-        printf("OK\r\n");
-    else
-        printf("FAIL\r\n");
-
-    printf("[ICM42688] Init... ");
-    if (ICM42688_Init(&hspi2, (void *)&xSemaphore_SPI2Handle) == ICM42688_OK)
-        printf("OK\r\n");
-    else
-        printf("FAIL\r\n");
-
-    /* 6. TF 卡初始化 */
-    printf("[TF] Init... ");
-    if (TF_Init())
-        printf("OK\r\n");
-    else
-        printf("FAIL\r\n");
+    /* 5. 传感器与 TF 卡初始化 — 移到调度器启动后执行 (StartSensorRead 首次运行) */
+    printf("[SENSORS/LOG] Init deferred to after kernel start\r\n");
 
     printf("========== System Init Complete ==========\r\n");
 }

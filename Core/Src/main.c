@@ -745,6 +745,39 @@ void StartSensorRead(void *argument)
   /* USER CODE BEGIN StartSensorRead */
   uint32_t seq = 0;
 
+  /* 首次运行: 初始化传感器和 TF 卡 (此时内核已在运行, osDelay/信号量可用) */
+  printf("[AHT20] Init... ");
+  if (AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle) == AHT20_OK)
+      printf("OK\r\n");
+  else
+      printf("FAIL\r\n");
+
+  printf("[INA226] Init... ");
+  if (INA226_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, 15.0f) == INA226_OK)
+      printf("OK\r\n");
+  else
+      printf("FAIL\r\n");
+
+  printf("[SD3078] Init... ");
+  if (SD3078_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, NULL) == SD3078_OK)
+      printf("OK\r\n");
+  else
+      printf("FAIL\r\n");
+
+  printf("[ICM42688] Init... ");
+  if (ICM42688_Init(&hspi2, (void *)&xSemaphore_SPI2Handle) == ICM42688_OK)
+      printf("OK\r\n");
+  else
+      printf("FAIL\r\n");
+
+  printf("[TF] Init... ");
+  if (TF_Init())
+      printf("OK\r\n");
+  else
+      printf("FAIL\r\n");
+
+  printf("========== System Init Complete ==========\r\n");
+
   for(;;)
   {
     SensorData_t data = {0};
