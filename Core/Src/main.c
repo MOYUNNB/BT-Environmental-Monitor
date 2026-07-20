@@ -35,6 +35,8 @@
 #include "key.h"
 #include "ws2812.h"
 #include "tf_card.h"
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
