@@ -215,8 +215,9 @@ void WS2812_Init(void)
     for (uint16_t i = 0; i < WS2812_BUF_LEN; i++) {
         s_buffer[i] = 0;
     }
-    /* 必须启动 TIM 计数器, 否则 HAL_TIM_PWM_Start_DMA 不会产生更新事件 */
+    /* HAL_TIM_PWM_Start_DMA 可能不会启动 TIM 计数器, 显式启动 Base + PWM */
     HAL_TIM_Base_Start(WS2812_TIM);
+    HAL_TIM_PWM_Start(WS2812_TIM, WS2812_CHANNEL);
     WS2812_Update();
     WS2812_WaitReady();
 }
