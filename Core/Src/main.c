@@ -745,35 +745,16 @@ void StartSensorRead(void *argument)
   osDelay(100);
   uint32_t seq = 0;
 
-  /* 逐个测试传感器 Init, 定位崩溃点 */
-  printf("[TEST] Starting I2C test...\r\n");
-  HAL_StatusTypeDef i2c_test = HAL_I2C_IsDeviceReady(&hi2c1, (0x38 << 1), 3, 100);
-  printf("[TEST] I2C device ready: %d (0=OK)\r\n", (int)i2c_test);
-  osDelay(10);
-
-  printf("[AHT20] Init... ");
-  AHT20_Status_t aht_ret = AHT20_Init(&hi2c1, (void *)&xSemaphore_I2CHandle);
+  /* 测试: 先试试不用信号量直接 Init */
+  printf("[AHT20] Init(NULL)... ");
+  AHT20_Status_t aht_ret = AHT20_Init(&hi2c1, NULL);
   printf("ret=%d\r\n", (int)aht_ret);
   osDelay(10);
 
-  printf("[INA226] Init... ");
-  INA226_Status_t ina_ret = INA226_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, 15.0f);
+  printf("[INA226] Init(NULL)... ");
+  INA226_Status_t ina_ret = INA226_Init(&hi2c1, NULL, 15.0f);
   printf("ret=%d\r\n", (int)ina_ret);
   osDelay(10);
-
-  printf("[SD3078] Init... ");
-  SD3078_Status_t sd_ret = SD3078_Init(&hi2c1, (void *)&xSemaphore_I2CHandle, NULL);
-  printf("ret=%d\r\n", (int)sd_ret);
-  osDelay(10);
-
-  printf("[ICM42688] Init... ");
-  ICM42688_Status_t icm_ret = ICM42688_Init(&hspi2, (void *)&xSemaphore_SPI2Handle);
-  printf("ret=%d\r\n", (int)icm_ret);
-  osDelay(10);
-
-  printf("[TF] Init... ");
-  bool tf_ret = TF_Init();
-  printf("ret=%d\r\n", (int)tf_ret);
 
   printf("========== System Init Complete ==========\r\n");
 
