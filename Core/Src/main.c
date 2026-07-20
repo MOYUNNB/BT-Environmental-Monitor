@@ -286,6 +286,7 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
+  printf("[KERNEL] Starting FreeRTOS scheduler...\r\n");
   osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
@@ -718,17 +719,11 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  /* 系统心跳: 每秒打印一次 */
-  uint32_t tick = 0;
+  printf("[TASK] DefaultTask started\r\n");
   for(;;)
   {
-    tick++;
-    if (tick % 10 == 0) {
-        printf("[SYS] Heartbeat #%lu, Heap: %lu bytes free\r\n",
-               (unsigned long)tick,
-               (unsigned long)(unsigned long)osKernelGetTickCount());
-    }
-    osDelay(1000);
+    osDelay(5000);
+    printf("[SYS] Heartbeat OK\r\n");
   }
   /* USER CODE END 5 */
 }
@@ -743,6 +738,7 @@ void StartDefaultTask(void *argument)
 void StartSensorRead(void *argument)
 {
   /* USER CODE BEGIN StartSensorRead */
+  printf("[TASK] StartSensorRead started\r\n");
   uint32_t seq = 0;
 
   /* 首次运行: 初始化传感器和 TF 卡 (此时内核已在运行, osDelay/信号量可用) */
