@@ -61,7 +61,7 @@ void App_Init(void)
     BLUETOOTH_Init(&huart2);
     printf("OK\r\n");
 
-    /* 5. 传感器与 TF 卡初始化 — 移到调度器启动后执行 (StartSensorRead 首次运行) */
+    /* 5. 传感器与 TF 卡初始化 → 移至 StartSensorRead 首次运行 (调度器启动后执行) */
     printf("[SENSORS/LOG] Init deferred to after kernel start\r\n");
 
     printf("========== System Init Complete ==========\r\n");

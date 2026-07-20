@@ -178,6 +178,27 @@ int __io_putchar(int ch)
     HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 10);
     return ch;
 }
+
+/* 传感器 Init (在调度器启动后调用, 此时互斥锁可用) */
+static void sensor_init(void)
+{
+    printf("[AHT20] Init... ");
+    printf("%s\r\n", (AHT20_Init(&hi2c1, (void *)xSemaphore_I2CHandle) == AHT20_OK) ? "OK" : "FAIL");
+
+    printf("[INA226] Init... ");
+    printf("%s\r\n", (INA226_Init(&hi2c1, (void *)xSemaphore_I2CHandle, 15.0f) == INA226_OK) ? "OK" : "FAIL");
+
+    printf("[SD3078] Init... ");
+    printf("%s\r\n", (SD3078_Init(&hi2c1, (void *)xSemaphore_I2CHandle, NULL) == SD3078_OK) ? "OK" : "FAIL");
+
+    printf("[ICM42688] Init... ");
+    printf("%s\r\n", (ICM42688_Init(&hspi2, (void *)xSemaphore_SPI2Handle) == ICM42688_OK) ? "OK" : "FAIL");
+
+    printf("[TF] Init... ");
+    printf("%s\r\n", TF_Init() ? "OK" : "FAIL");
+
+    printf("========== System Init Complete ==========\r\n");
+}
 /* USER CODE END 0 */
 
 /**
@@ -719,11 +740,9 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  printf("[TASK] DefaultTask started\r\n");
   for(;;)
   {
     osDelay(5000);
-    printf("[SYS] Heartbeat OK\r\n");
   }
   /* USER CODE END 5 */
 }
@@ -738,25 +757,10 @@ void StartDefaultTask(void *argument)
 void StartSensorRead(void *argument)
 {
   /* USER CODE BEGIN StartSensorRead */
-  printf("[TASK] StartSensorRead started, waiting 1s...\r\n");
-  osDelay(1000);
-  printf("[TASK] 1s passed, starting sensor init...\r\n");
-
-  osDelay(100);
   uint32_t seq = 0;
 
-  /* 测试: 先试试不用信号量直接 Init */
-  printf("[AHT20] Init(NULL)... ");
-  AHT20_Status_t aht_ret = AHT20_Init(&hi2c1, NULL);
-  printf("ret=%d\r\n", (int)aht_ret);
-  osDelay(10);
-
-  printf("[INA226] Init(NULL)... ");
-  INA226_Status_t ina_ret = INA226_Init(&hi2c1, NULL, 15.0f);
-  printf("ret=%d\r\n", (int)ina_ret);
-  osDelay(10);
-
-  printf("========== System Init Complete ==========\r\n");
+  /* 首次运行: 初始化传感器 (此时内核已启动, 互斥锁可用) */
+  sensor_init();
 
   for(;;)
   {
