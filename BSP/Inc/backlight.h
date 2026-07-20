@@ -8,6 +8,9 @@
 #ifndef __BACKLIGHT_H
 #define __BACKLIGHT_H
 
+/* 背光控制模式: PWM (TIM10_CH1 / PB8), 与嘉立创参考代码一致 */
+#define BACKLIGHT_USE_PWM 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,8 +20,6 @@ extern "C" {
 /* 编译时选择背光控制模式 */
 #ifndef BACKLIGHT_USE_PWM
 #define BACKLIGHT_USE_GPIO 1   /* 默认使用 GPIO 开关 */
-#else
-#define BACKLIGHT_USE_PWM 1
 #endif
 
 #if BACKLIGHT_USE_PWM

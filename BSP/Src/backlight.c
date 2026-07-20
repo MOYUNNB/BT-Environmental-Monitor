@@ -105,7 +105,7 @@ void Backlight_Init(void)
     /* 开启 GPIOB 时钟 */
     __HAL_RCC_GPIOB_CLK_ENABLE();
 
-    /* 配置 PB8 为推挽输出 */
+    /* 配置 PB0 (LCD_BL) 为推挽输出 */
     GPIO_InitStruct.Pin = BACKLIGHT_GPIO_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -118,14 +118,14 @@ void Backlight_Init(void)
 
 void Backlight_On(void)
 {
-    /* 拉高 PB8 打开背光 (根据实际电路调整) */
-    HAL_GPIO_WritePin(BACKLIGHT_GPIO_Port, BACKLIGHT_GPIO_Pin, GPIO_PIN_SET);
+    /* 拉低 PB0 打开背光 (参考嘉立创: 低电平有效) */
+    HAL_GPIO_WritePin(BACKLIGHT_GPIO_Port, BACKLIGHT_GPIO_Pin, GPIO_PIN_RESET);
 }
 
 void Backlight_Off(void)
 {
-    /* 拉低 PB8 关闭背光 */
-    HAL_GPIO_WritePin(BACKLIGHT_GPIO_Port, BACKLIGHT_GPIO_Pin, GPIO_PIN_RESET);
+    /* 拉高 PB0 关闭背光 */
+    HAL_GPIO_WritePin(BACKLIGHT_GPIO_Port, BACKLIGHT_GPIO_Pin, GPIO_PIN_SET);
 }
 
 #endif /* BACKLIGHT_USE_PWM */

@@ -31,6 +31,7 @@ extern "C" {
 #define LCD_COLOR_YELLOW        0xFFE0U
 #define LCD_COLOR_GRAY          0x8430U
 #define LCD_COLOR_ORANGE        0xFD20U
+#define LCD_COLOR_DARKBLUE      0x01CFU
 
 /* 显示方向 — 通过 MADCTL(0x36) 的 MV/MX/MY 位控制 */
 typedef enum {

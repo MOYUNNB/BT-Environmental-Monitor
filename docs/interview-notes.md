@@ -16,7 +16,8 @@
 7. [EC11 编码器查表法解码](#7-ec11-编码器查表法解码)
 8. [TF 卡 FATFS 掉电保护](#8-tf-卡-fatfs-掉电保护)
 9. [BSP 驱动的接口设计模式](#9-bsp-驱动的接口设计模式)
-10. [从 CubeMX 骨架到完整系统](#10-从-cubemx-骨架到完整系统)
+10. [LCD 背光控制与上电时序优化](#10-lcd-背光控制与上电时序优化)
+11. [从 CubeMX 骨架到完整系统](#11-从-cubemx-骨架到完整系统)
 
 ---
 
@@ -447,7 +448,92 @@ if (AHT20_ReadAHT20(&t, &h) == AHT20_OK) {
 
 ---
 
-## 10. 从 CubeMX 骨架到完整系统
+## 10. LCD 背光控制与上电时序优化
+
+> 关于 LCD 初始化流程优化的故事，涉及背光 PWM 驱动编写、上电时序设计、以及"黑屏→亮屏"一瞬间的视觉体验打磨。
+
+### S — Situation
+
+项目使用 ST7789V2 驱动 LCD（SPI1，21MHz），通过 PB0 引脚控制背光。最初的设计是：
+1. `App_Init()` 中调用 `LCD_Init()` → `LCD_Clear()` → `LCD_DrawString()` 显示 "Initializing..."
+2. 背光由 GPIO 直接驱动（没有独立的背光模块）
+
+实际效果是：上电后 LCD 立即亮起白色背光，用户能看到屏幕上 Sensor 初始化的全过程（闪烁、字符逐步出现），视觉上非常不专业。
+
+### T — Task
+
+实现一个可控的背光方案：
+- 上电时背光保持关闭
+- LCD 初始化（配置寄存器、清屏）全部完成后才亮起
+- 背光支持 PWM 调节（为后续亮度调节留接口）
+- 用户看到的是"黑屏→完整画面"的干净切换
+
+### A — Action
+
+**第一步：新建背光驱动模块**
+
+`backlight.c / backlight.h`，封装 TIM5_CH4 的 PWM 输出：
+
+```c
+void Backlight_Init(void)
+{
+    // TIM5_CH4 PWM 初始化
+    HAL_TIM_PWM_Start(BACKLIGHT_TIM, BACKLIGHT_CHANNEL);
+    __HAL_TIM_SET_COMPARE(BACKLIGHT_TIM, BACKLIGHT_CHANNEL, 0);
+}
+
+void Backlight_Set(uint16_t duty)
+{
+    __HAL_TIM_SET_COMPARE(BACKLIGHT_TIM, BACKLIGHT_CHANNEL, duty);
+}
+
+void Backlight_On(void)  { Backlight_Set(BACKLIGHT_MAX); }
+void Backlight_Off(void) { Backlight_Set(0); }
+```
+
+**第二步：重排 LCD 初始化时序**
+
+```
+❌ 旧时序：
+  LCD_Init() → LCD_Clear() → LCD_ShowString()   ← 背光一直亮着，用户看到初始化过程
+
+✅ 新时序（LCD_Init 内部）：
+  Backlight_Init()           → 1. 初始化 PWM，关闭背光
+  HAL_GPIO_WritePin(RST, 0)  → 2. 硬件复位（背光关闭，看不到闪烁）
+  ST7789 寄存器配置序列       → 3. 配置像素格式、方向、显示开
+  LCD_Clear(BLACK)           → 4. 清屏（背光仍关，看不到）
+  Backlight_On()             → 5. 最后一步才开背光，用户看到完整画面
+```
+
+**第三步：简化 App_Init**
+
+旧代码在 `App_Init()` 中做了 `LCD_Clear()` + `LCD_DrawString("Initializing...")`，但有了新时序后这些动作在背光亮起前就完成了，用户看不见。于是移除冗余代码，让 `LCD_Init()` 内部一站式完成。
+
+**第四步：硬件配置**
+
+在 main.ioc 中添加 PB0 引脚（GPIO_Output, Label=LCD_BL），在 main.h 中生成 `LCD_BL_Pin` / `LCD_BL_GPIO_Port` 宏，更新 `MX_GPIO_Init()` 的 GPIO 初始化包含背光引脚。
+
+### R — Result
+
+上电效果从：
+```
+❌ 白屏闪烁 → 字符逐行出现 → 正常显示
+```
+变为：
+```
+✅ 黑屏（约500ms）→ 完整画面亮起
+```
+
+看起来像"一下子就好了"，用户体验提升显著。背光 PWM 接口为后续自动亮度调节（根据环境光传感器）预留了扩展点。
+
+**面试追问准备：**
+- **为什么不用 PMW 硬件调光？** 用的就是 TIM5_CH4 的 PWM，`Backlight_Set()` 改占空比即可实现亮度调节
+- **初始化的 500ms 黑屏会不会太长？** 主要是 ST7789 的 120ms 复位 + 各寄存器间的延时。如果有要求可以优化，但目前黑屏期用户感觉不到
+- **Backlight 为什么要独立成一个模块？** 单一职责 — LCD 管显示内容，背光管亮度控制。后续接环境光传感器改亮度只改 backlight.c，不改 lcd.c
+
+---
+
+## 11. 从 CubeMX 骨架到完整系统
 
 ### S — Situation
 

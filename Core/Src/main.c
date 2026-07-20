@@ -138,6 +138,9 @@ const osMutexAttr_t xSemaphore_SensorData_attributes = {
   .name = "xSemaphore_SensorData"
 };
 /* USER CODE BEGIN PV */
+/* TIM10 句柄 (LCD 背光 PWM, backlight.c 引用) */
+TIM_HandleTypeDef htim10;
+
 /* SPI2 互斥锁 (保护 ICM42688 等 SPI2 设备) */
 osMutexId_t xSemaphore_SPI2Handle;
 const osMutexAttr_t xSemaphore_SPI2_attributes = {
@@ -266,7 +269,7 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of xQueue_SensorData */
-  xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(uint8_t), &xQueue_SensorData_attributes);
+  xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(SensorData_t), &xQueue_SensorData_attributes);
 
   /* creation of xQueue_BT_Command */
   xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(uint8_t), &xQueue_BT_Command_attributes);
@@ -448,8 +451,8 @@ static void MX_SPI1_Init(void)
   hspi1.Init.Mode = SPI_MODE_MASTER;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
   hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
@@ -669,7 +672,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOE, FLASH_CS_Pin|IMU_CS_Pin|LCD_CS_Pin|LCD_RST_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LCD_BL_Pin|LED_R_Pin|LED_G_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED_R_Pin|LED_G_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_RESET);
@@ -693,8 +696,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(KEY1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LCD_BL_Pin LED_R_Pin LED_G_Pin */
-  GPIO_InitStruct.Pin = LCD_BL_Pin|LED_R_Pin|LED_G_Pin;
+  /*Configure GPIO pins : LED_R_Pin LED_G_Pin */
+  GPIO_InitStruct.Pin = LED_R_Pin|LED_G_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
