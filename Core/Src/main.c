@@ -137,13 +137,12 @@ osMutexId_t xSemaphore_SensorDataHandle;
 const osMutexAttr_t xSemaphore_SensorData_attributes = {
   .name = "xSemaphore_SensorData"
 };
-/* Definitions for xSemaphore_SPI2 */
+/* USER CODE BEGIN PV */
+/* SPI2 互斥锁 (保护 ICM42688 等 SPI2 设备) */
 osMutexId_t xSemaphore_SPI2Handle;
 const osMutexAttr_t xSemaphore_SPI2_attributes = {
   .name = "xSemaphore_SPI2"
 };
-/* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -267,10 +266,10 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of xQueue_SensorData */
-  xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(SensorData_t), &xQueue_SensorData_attributes);
+  xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(uint8_t), &xQueue_SensorData_attributes);
 
   /* creation of xQueue_BT_Command */
-  xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(BT_CmdPacket_t), &xQueue_BT_Command_attributes);
+  xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(uint8_t), &xQueue_BT_Command_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -307,7 +306,6 @@ int main(void)
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
-  printf("[KERNEL] Starting FreeRTOS scheduler...\r\n");
   osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
@@ -528,7 +526,7 @@ static void MX_TIM5_Init(void)
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 0;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 104;   /* 84MHz / (104+1) = 800KHz for WS2812 */
+  htim5.Init.Period = 209;
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
@@ -671,7 +669,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOE, FLASH_CS_Pin|IMU_CS_Pin|LCD_CS_Pin|LCD_RST_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LED_R_Pin|LED_G_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LCD_BL_Pin|LED_R_Pin|LED_G_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_RESET);
@@ -695,8 +693,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(KEY1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED_R_Pin LED_G_Pin */
-  GPIO_InitStruct.Pin = LED_R_Pin|LED_G_Pin;
+  /*Configure GPIO pins : LCD_BL_Pin LED_R_Pin LED_G_Pin */
+  GPIO_InitStruct.Pin = LCD_BL_Pin|LED_R_Pin|LED_G_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -851,7 +849,7 @@ void StartTFLog(void *argument)
 {
   /* USER CODE BEGIN StartTFLog */
   SensorData_t data;
-  char timestamp[24];
+  char timestamp[32];
 
   for(;;)
   {

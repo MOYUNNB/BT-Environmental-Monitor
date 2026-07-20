@@ -41,9 +41,7 @@ void App_Init(void)
 
     /* 1. LCD 初始化 */
     printf("[LCD] Init... ");
-    LCD_Init();
-    LCD_Clear(LCD_COLOR_BLACK);
-    LCD_DrawString(20, 140, "Initializing...", LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
+    LCD_Init();  /* 内部包含 Backlight_Init() */
     printf("OK\r\n");
 
     /* 2. 按键初始化 */

@@ -65,6 +65,8 @@ void Error_Handler(void);
 #define KEY3_GPIO_Port GPIOC
 #define KEY1_Pin GPIO_PIN_0
 #define KEY1_GPIO_Port GPIOA
+#define LCD_BL_Pin GPIO_PIN_0
+#define LCD_BL_GPIO_Port GPIOB
 #define LED_R_Pin GPIO_PIN_2
 #define LED_R_GPIO_Port GPIOB
 #define IMU_CS_Pin GPIO_PIN_7

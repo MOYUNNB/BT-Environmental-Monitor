@@ -16,6 +16,7 @@
  *       BSP/lcd/st7789.c + st7789_port.c (约 500 行, 可直接搬运)
  */
 #include "lcd.h"
+#include "backlight.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -211,25 +212,28 @@ static void lcd_write_buf(const uint8_t *buf, uint16_t len)
  */
 void LCD_Init(void)
 {
+    /* 0. 初始化背光 PWM (先关背光，避免闪烁) */
+    Backlight_Init();
+    Backlight_Off();
+
     /* 1. 硬件复位 */
     HAL_GPIO_WritePin(LCD_RST_PORT, LCD_RST_PIN, GPIO_PIN_RESET);
     HAL_Delay(10);
     HAL_GPIO_WritePin(LCD_RST_PORT, LCD_RST_PIN, GPIO_PIN_SET);
     HAL_Delay(120);
 
-    /* 2. 软件复位 */
-    lcd_write_cmd(0x01);  /* SWRESET */
-    HAL_Delay(150);
-
-    /* 3. 退出睡眠模式 */
+    /* 2. 退出睡眠模式 (先于软件复位，更稳定) */
     lcd_write_cmd(0x11);  /* SLPOUT */
     HAL_Delay(200);
 
-    /* 4. 像素格式 RGB565 */
+    /* 3. 像素格式 RGB565 (0x05 = 16-bit) */
     lcd_write_cmd(0x3A);  /* COLMOD */
-    lcd_write_data(0x55); /* 16-bit RGB565 */
+    lcd_write_data(0x05); /* 16-bit RGB565 */
 
-    /* 5. 寄存器初始化序列 (参考 ST7789V2 数据手册) */
+    /* 4. 默认方向 (必须在 COLMOD 之后) */
+    LCD_SetDirection(LCD_DIR_PORTRAIT);
+
+    /* 5. 寄存器初始化序列 (参考 ST7789V2 数据手册 + 嘉立创示例) */
     lcd_write_cmd(0xB2);
     lcd_write_data(0x0C); lcd_write_data(0x0C);
     lcd_write_data(0x00); lcd_write_data(0x33); lcd_write_data(0x33);
@@ -262,15 +266,15 @@ void LCD_Init(void)
     /* 6. 显示反转开 */
     lcd_write_cmd(0x21);
 
-    /* 7. 默认方向 */
-    LCD_SetDirection(LCD_DIR_PORTRAIT);
-
-    /* 8. 开显示 */
+    /* 7. 开显示 */
     lcd_write_cmd(0x29);  /* DISPON */
     HAL_Delay(50);
 
-    /* 9. 清屏 */
+    /* 8. 清屏 */
     LCD_Clear(LCD_COLOR_BLACK);
+
+    /* 9. 打开背光 (最后一步，避免看到初始化过程) */
+    Backlight_On();
 }
 
 /*
