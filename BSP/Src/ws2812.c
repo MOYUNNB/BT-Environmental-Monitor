@@ -212,20 +212,14 @@ void WS2812_WaitReady(void)
  */
 void WS2812_Init(void)
 {
-    printf("[WS2812dbg] step1: clear buf... ");
     s_busy = 0U;
     for (uint16_t i = 0; i < WS2812_BUF_LEN; i++) {
         s_buffer[i] = 0;
     }
-    printf("OK\r\n");
-
-    printf("[WS2812dbg] step2: Update... ");
+    /* HAL_TIM_PWM_Start_DMA 不会启动 TIM 计数器, 需要先启动基础定时器 */
+    HAL_TIM_Base_Start(WS2812_TIM);
     WS2812_Update();
-    printf("OK (busy=%d)\r\n", (int)s_busy);
-
-    printf("[WS2812dbg] step3: WaitReady... ");
     WS2812_WaitReady();
-    printf("OK\r\n");
 }
 
 /*
