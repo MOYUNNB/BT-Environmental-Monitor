@@ -16,7 +16,7 @@ extern "C" {
 #define CFG_TF_LOG_PERIOD_MS        1000U    /* TF 卡记录周期 */
 #define CFG_BT_SEND_PERIOD_MS       1000U    /* 蓝牙推送周期 */
 #define CFG_KEY_SCAN_PERIOD_MS      10U      /* 按键扫描周期 */
-#define CFG_WS2812_PERIOD_MS        1000U    /* WS2812 更新周期 */
+#define CFG_WS2812_PERIOD_MS        50U      /* WS2812 更新周期 */
 
 /* ---- LCD 页面 ---- */
 #define CFG_PAGE_DATA               0U       /* 数据页 */

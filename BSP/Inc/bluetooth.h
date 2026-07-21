@@ -53,12 +53,15 @@ void BLUETOOTH_Init(UART_HandleTypeDef *huart);
 void BLUETOOTH_Send(const char *json_str);
 
 /*
- * 构造 JSON 并发送:
- *   {"temp":25.3,"humi":65.2,"volt":12.05,"curr":0.250,"pwr":3.01}\r\n
+ * 构造 JSON 并发送 (含 IMU):
+ *   {"temp":25.3,"humi":65.2,"volt":12.05,"curr":0.250,"pwr":3.01,
+ *    "accel":{"x":0.01,"y":0.02,"z":9.81},"gyro":{"x":0.1,"y":0.2,"z":0.0}}\r\n
  * 尾部 \r\n: 手机端 App 以换行分隔数据包
  */
 void BLUETOOTH_SendSensorData(float temp, float humi,
-                              float volt, float curr, float pwr);
+                              float volt, float curr, float pwr,
+                              float accel_x, float accel_y, float accel_z,
+                              float gyro_x, float gyro_y, float gyro_z);
 
 /*
  * 非阻塞获取命令:

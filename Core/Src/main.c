@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "app.h"
 #include "sensor_data.h"
+#include "app_conf.h"
 #include "bluetooth.h"
 #include "aht20.h"
 #include "ina226.h"
@@ -272,7 +273,7 @@ int main(void)
   xQueue_SensorDataHandle = osMessageQueueNew (10, sizeof(SensorData_t), &xQueue_SensorData_attributes);
 
   /* creation of xQueue_BT_Command */
-  xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(uint8_t), &xQueue_BT_Command_attributes);
+  xQueue_BT_CommandHandle = osMessageQueueNew (5, sizeof(BT_CmdPacket_t), &xQueue_BT_Command_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -529,7 +530,7 @@ static void MX_TIM5_Init(void)
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 0;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 209;
+  htim5.Init.Period = 104;   /* 84MHz/(104+1) = 800KHz (WS2812 需要) */
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
@@ -812,7 +813,7 @@ void StartSensorRead(void *argument)
                (unsigned)data.sensors_ok);
     }
 
-    osDelay(100);
+    osDelay(CFG_SENSOR_PERIOD_MS);
   }
   /* USER CODE END StartSensorRead */
 }
@@ -836,7 +837,7 @@ void StartLCDUpdate(void *argument)
       LCD_Page_Refresh(&data);
     }
 
-    osDelay(200);
+    osDelay(CFG_LCD_PERIOD_MS);
   }
   /* USER CODE END StartLCDUpdate */
 }
@@ -874,7 +875,7 @@ void StartTFLog(void *argument)
                  data.power.bus_voltage, data.power.current, data.power.power,
                  accel, gyro);
 
-    osDelay(1000);
+    osDelay(CFG_TF_LOG_PERIOD_MS);
   }
   /* USER CODE END StartTFLog */
 }
@@ -891,23 +892,46 @@ void StartBluetooth(void *argument)
   /* USER CODE BEGIN StartBluetooth */
   SensorData_t data;
   BT_CmdPacket_t cmd;
+  char ack[64];
 
   for(;;)
   {
-    /* 1. 读取传感器数据并发送 */
+    /* 1. 读取传感器数据并发送 (含 IMU) */
     SensorData_Read(&data);
     BLUETOOTH_SendSensorData(data.env.temperature, data.env.humidity,
-                             data.power.bus_voltage, data.power.current, data.power.power);
+                             data.power.bus_voltage, data.power.current, data.power.power,
+                             data.imu.accel_x, data.imu.accel_y, data.imu.accel_z,
+                             data.imu.gyro_x, data.imu.gyro_y, data.imu.gyro_z);
 
     /* 2. 检查蓝牙命令 */
-    if (BLUETOOTH_GetCmd(&cmd)) {
-      if (cmd.cmd == BT_CMD_SET_LED) {
-        WS2812_SetAll((uint8_t)cmd.r, (uint8_t)cmd.g, (uint8_t)cmd.b);
-        WS2812_Update();
+    while (BLUETOOTH_GetCmd(&cmd)) {
+      switch (cmd.cmd) {
+        case BT_CMD_GET_TEMP:
+          snprintf(ack, sizeof(ack),
+              "{\"temp\":%.1f}\r\n", (double)data.env.temperature);
+          BLUETOOTH_Send(ack);
+          break;
+
+        case BT_CMD_GET_ALL:
+          /* 已通过 BLUETOOTH_SendSensorData 每秒推送, 直接回复 OK */
+          BLUETOOTH_Send("{\"status\":\"ok\"}\r\n");
+          break;
+
+        case BT_CMD_SET_LED:
+          WS2812_SetAll((uint8_t)cmd.r, (uint8_t)cmd.g, (uint8_t)cmd.b);
+          WS2812_Update();
+          snprintf(ack, sizeof(ack),
+              "{\"led\":{\"r\":%ld,\"g\":%ld,\"b\":%ld}}\r\n", cmd.r, cmd.g, cmd.b);
+          BLUETOOTH_Send(ack);
+          break;
+
+        default:
+          BLUETOOTH_Send("{\"error\":\"unknown_cmd\"}\r\n");
+          break;
       }
     }
 
-    osDelay(1000);
+    osDelay(CFG_BT_SEND_PERIOD_MS);
   }
   /* USER CODE END StartBluetooth */
 }
@@ -939,10 +963,18 @@ void StartKeyScan(void *argument)
     /* 按键处理 */
     KeyID_t key = KEY_GetPressed();
     if (key == KEY_1) {
-      LCD_Page_Switch(PAGE_DATA);  /* KEY1 返回数据页 */
+      /* KEY1: 下一页 */
+      PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
+      LCD_Page_Switch(next);
+    } else if (key == KEY_3) {
+      /* KEY3 (板载按键): 上一页 */
+      PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
+      LCD_Page_Switch(prev);
+    } else if (key == KEY_2) {
+      /* KEY2: 预留功能 (当前无操作) */
     }
 
-    osDelay(10);
+    osDelay(CFG_KEY_SCAN_PERIOD_MS);
   }
   /* USER CODE END StartKeyScan */
 }
@@ -981,7 +1013,7 @@ void StartWS2812(void *argument)
     WS2812_SetAll(r, g, b);
     WS2812_Update();
 
-    osDelay(1000);
+    osDelay(CFG_WS2812_PERIOD_MS);
   }
   /* USER CODE END StartWS2812 */
 }

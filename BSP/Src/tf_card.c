@@ -22,6 +22,9 @@ extern I2C_HandleTypeDef hi2c1;
 static char   s_filename[32];
 static uint8_t s_mounted  = 0;
 static uint8_t s_file_open = 0;
+static uint16_t s_log_year  = 0;   /* 当前日志文件的日期, 用于跨日检测 */
+static uint8_t  s_log_month = 0;
+static uint8_t  s_log_day   = 0;
 
 /*
  * 从 SD3078 RTC 读取日期, 生成文件名 YYYY-MM-DD.csv
@@ -44,6 +47,18 @@ static void get_filename(char *buf, size_t size)
  * 初始化:
  *   f_mount (opt=1) → 创建当日 CSV → f_lseek 到末尾 → 新文件写表头
  */
+/* 从当前文件名解析日期, 更新 s_log_year/month/day */
+static void update_log_date(void)
+{
+    /* s_filename 格式为 YYYY-MM-DD.csv */
+    if (strlen(s_filename) >= 10) {
+        s_log_year  = (uint16_t)((s_filename[0] - '0') * 1000 + (s_filename[1] - '0') * 100
+                               + (s_filename[2] - '0') * 10   + (s_filename[3] - '0'));
+        s_log_month = (uint8_t)((s_filename[5] - '0') * 10 + (s_filename[6] - '0'));
+        s_log_day   = (uint8_t)((s_filename[8] - '0') * 10 + (s_filename[9] - '0'));
+    }
+}
+
 bool TF_Init(void)
 {
     FRESULT res;
@@ -67,6 +82,7 @@ bool TF_Init(void)
         f_puts(TF_CSV_HEADER, &SDFile);
     }
     s_file_open = 1;
+    update_log_date();
     return true;
 }
 
@@ -75,11 +91,52 @@ bool TF_Init(void)
  *   2026-07-18 12:00:01,25.3,65.2,12.05,0.250,3.01,...
  *   f_write 仅写入 FATFS 缓冲区 (微秒级), f_sync 才刷到 SD 卡 (10~50ms)
  */
+/* 跨日检测: 如果日期变了, 关闭旧文件, 创建新文件 */
+static void check_date_rollover(void)
+{
+    char new_name[32];
+    SD3078_Time_t rtc;
+
+    if (SD3078_GetTime(&rtc) != SD3078_OK) return;
+
+    /* 日期未变 → 无需切换 */
+    if (rtc.year == s_log_year && rtc.month == s_log_month && rtc.day == s_log_day) {
+        return;
+    }
+
+    /* 日期变了 → 关闭旧文件, 开新文件 */
+    snprintf(new_name, sizeof(new_name), "%04u-%02u-%02u.csv",
+             (unsigned)rtc.year, (unsigned)rtc.month, (unsigned)rtc.day);
+
+    FRESULT res;
+    f_close(&SDFile);
+    s_file_open = 0;
+
+    strncpy(s_filename, new_name, sizeof(s_filename) - 1);
+    res = f_open(&SDFile, s_filename, FA_WRITE | FA_OPEN_EXISTING);
+    if (res == FR_OK) {
+        f_lseek(&SDFile, f_size(&SDFile));
+    } else {
+        res = f_open(&SDFile, s_filename, FA_WRITE | FA_CREATE_NEW);
+        if (res == FR_OK) {
+            f_puts(TF_CSV_HEADER, &SDFile);
+        }
+    }
+    s_file_open = (res == FR_OK);
+    if (s_file_open) {
+        update_log_date();
+    }
+}
+
 bool TF_LogSensor(const char *timestamp,
                   float temp, float humi,
                   float volt, float curr, float pwr,
                   const float accel_g[3], const float gyro_dps[3])
 {
+    if (!s_file_open) return false;
+
+    /* 跨日检测 */
+    check_date_rollover();
     if (!s_file_open) return false;
 
     char buf[256];

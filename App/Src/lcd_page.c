@@ -184,9 +184,9 @@ static void page_imu_draw(const SensorData_t *data)
         int16_t bx = (int16_t)(ax * 30.0f);
         int16_t by_ = (int16_t)(ay * 30.0f);
         int16_t bz = (int16_t)(az * 30.0f);
-        if (bx > 55) bx = 55; if (bx < -55) bx = -55;
-        if (by_ > 55) by_ = 55; if (by_ < -55) by_ = -55;
-        if (bz > 55) bz = 55; if (bz < -55) bz = -55;
+        if (bx > 55) { bx = 55; } else if (bx < -55) { bx = -55; }
+        if (by_ > 55) { by_ = 55; } else if (by_ < -55) { by_ = -55; }
+        if (bz > 55) { bz = 55; } else if (bz < -55) { bz = -55; }
 
         /* 零线 */
         LCD_FillRect(160, bar_base, 235, bar_base + 1, LCD_COLOR_GRAY);
@@ -226,9 +226,9 @@ static void page_imu_draw(const SensorData_t *data)
         int16_t gx = (int16_t)(data->imu.gyro_x / 4.0f);
         int16_t gy_v = (int16_t)(data->imu.gyro_y / 4.0f);
         int16_t gz = (int16_t)(data->imu.gyro_z / 4.0f);
-        if (gx > 55) gx = 55; if (gx < -55) gx = -55;
-        if (gy_v > 55) gy_v = 55; if (gy_v < -55) gy_v = -55;
-        if (gz > 55) gz = 55; if (gz < -55) gz = -55;
+        if (gx > 55) { gx = 55; } else if (gx < -55) { gx = -55; }
+        if (gy_v > 55) { gy_v = 55; } else if (gy_v < -55) { gy_v = -55; }
+        if (gz > 55) { gz = 55; } else if (gz < -55) { gz = -55; }
 
         LCD_FillRect(160, gbase, 235, gbase + 1, LCD_COLOR_GRAY);
         if (gx >= 0) LCD_FillRect(172, gbase - (uint16_t)gx, 188, gbase - 1, LCD_COLOR_YELLOW);

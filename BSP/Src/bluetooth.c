@@ -420,6 +420,19 @@ void BLUETOOTH_Init(UART_HandleTypeDef *huart)
 
     /* 第 5 步: 记录初始 NDTR 值 */
     s_last_ndtr = __HAL_DMA_GET_COUNTER(&hdma_usart2_rx);
+
+    /*
+     * 第 6 步: AT 指令配置模块名和波特率 (9600bps 下每条 AT 约 10ms)
+     * XW040 默认 9600bps, 我们不改波特率, 只改蓝牙名称
+     * 注意: AT 配置通常只需要在新模块上执行一次, 但每次初始化执行也无害
+     */
+    HAL_Delay(500);                                    /* 等待模块启动 */
+    HAL_UART_Transmit(s_huart, (uint8_t *)"AT\r\n", 4, 100);
+    HAL_Delay(100);
+    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+NAME=SensorMonitor\r\n", 23, 200);
+    HAL_Delay(100);
+    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+BAUD=8\r\n", 11, 200);  /* 8=9600bps, 保持默认 */
+    HAL_Delay(100);
 }
 
 void BLUETOOTH_Send(const char *json_str)
@@ -429,12 +442,18 @@ void BLUETOOTH_Send(const char *json_str)
     }
 }
 
-void BLUETOOTH_SendSensorData(float temp, float humi, float volt, float curr, float pwr)
+void BLUETOOTH_SendSensorData(float temp, float humi, float volt, float curr, float pwr,
+                              float accel_x, float accel_y, float accel_z,
+                              float gyro_x, float gyro_y, float gyro_z)
 {
-    char buf[200];
+    char buf[256];
     snprintf(buf, sizeof(buf),
-        "{\"temp\":%.1f,\"humi\":%.1f,\"volt\":%.2f,\"curr\":%.3f,\"pwr\":%.2f}\r\n",
-        (double)temp, (double)humi, (double)volt, (double)curr, (double)pwr);
+        "{\"temp\":%.1f,\"humi\":%.1f,\"volt\":%.2f,\"curr\":%.3f,\"pwr\":%.2f,"
+        "\"accel\":{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f},"
+        "\"gyro\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}\r\n",
+        (double)temp, (double)humi, (double)volt, (double)curr, (double)pwr,
+        (double)accel_x, (double)accel_y, (double)accel_z,
+        (double)gyro_x, (double)gyro_y, (double)gyro_z);
     BLUETOOTH_Send(buf);
 }
 

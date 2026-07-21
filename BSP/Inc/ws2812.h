@@ -17,14 +17,14 @@ extern "C" {
 #define WS2812_NUM              3U      /* 板载 3 颗 LED 级联 */
 
 /*
- * PWM 时序参数 — 需根据实际 TIM 时钟校准:
- *   TIM5 时钟通常 84MHz, 目标 PWM=800KHz ⇒ Period=104
- *   码 0: T0H≈0.35µs, 码 1: T1H≈0.70µs
- *   下面 25/50 是假定 Period=209 的经验值, 请用示波器实测校准!
+ * PWM 时序参数 (已校准 @ 84MHz TIM5, ARR=104 → 800KHz):
+ *   单周期 1.25µs, 每 tick = 11.9ns
+ *   码 0: T0H≈393ns (33 tick), 码 1: T1H≈797ns (67 tick)
+ *   WS2812 规格: T0H=350±150ns, T1H=700±150ns, 均在容差范围内
  */
-#define WS2812_T0H              25U     /* 0 码高电平 CCR 值 */
-#define WS2812_T1H              50U     /* 1 码高电平 CCR 值 */
-#define WS2812_RESET_LEN        500U    /* 复位低电平 >50µs, 500 个 PWM 周期 ≈ 625µs */
+#define WS2812_T0H              33U     /* 0 码高电平 CCR (393ns) */
+#define WS2812_T1H              67U     /* 1 码高电平 CCR (797ns) */
+#define WS2812_RESET_LEN        100U    /* 复位低电平 >50µs, 100×1.25µs=125µs */
 
 /*
  * 缓冲区结构: [RESET×500] [LED0×24] [LED1×24] [LED2×24] [RESET×500]
