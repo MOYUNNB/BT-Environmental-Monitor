@@ -333,7 +333,12 @@ void LCD_Page_Switch(PageID_t page)
 {
     if (page >= PAGE_COUNT) return;
     g_current_page = page;
-    s_last_page = page;
+    /* 注意: 不更新 s_last_page!
+     * LCD_Page_Refresh 通过比较 g_current_page 和 s_last_page 判断是否需全屏重绘。
+     * 如果这里也设置 s_last_page, 刷新任务就检测不到页号变化, 不会执行清屏+全屏绘制,
+     * 导致上一页的内容残留。
+     * s_last_page 由 LCD_Page_Refresh 在完成全屏绘制后更新。
+     */
 }
 
 /*
@@ -357,6 +362,7 @@ void LCD_Page_Refresh(const SensorData_t *data)
 
     if (page != s_last_page) {                  /* 页号变了 → 全屏重绘 */
         s_last_page = page;
+        LCD_Clear(LCD_COLOR_BLACK);             /* 先清屏再绘制, 防止页面残留 */
         switch (page) {
             case PAGE_DATA:      page_data_draw(data);   break;
             case PAGE_IMU_CHART: page_imu_draw(data);    break;
