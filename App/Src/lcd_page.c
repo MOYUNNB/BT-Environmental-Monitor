@@ -336,18 +336,26 @@ void LCD_Page_Switch(PageID_t page)
     s_last_page = page;
 }
 
+/*
+ * LCD_Page_Refresh — 页面刷新入口, 每 200ms 由 StartLCDUpdate 任务调用。
+ *
+ * _draw vs _update 分工:
+ *   _draw:   全屏绘制整个页面, 清除所有旧内容。仅在页面切换时执行一次。
+ *   _update: 只更新变化的数值区域 (时间、温湿度等), 保留静态元素。
+ *            目前 _update 调用 _draw 做了全屏重绘, 后续可优化为增量刷新。
+ *
+ * 竞态处理:
+ *   KeyScan 任务 (优先级 12) 高于 LCDUpdate (优先级 10), 可能在绘制途中
+ *   抢占并修改 g_current_page。这里在函数入口拍摄页号快照,
+ *   确保一次 Refresh 始终绘制同一个页面, 不会中途串页。
+ */
 void LCD_Page_Refresh(const SensorData_t *data)
 {
     if (data == NULL) return;
 
-    /*
-     * 拍摄当前页快照, 防止 KeyScan (更高优先级) 在绘制过程中
-     * 修改了 g_current_page 导致画错页面。
-     * 若 KeyScan 在拍摄后改变了页号, 下次 Refresh 才会响应。
-     */
-    PageID_t page = g_current_page;
+    PageID_t page = g_current_page;             /* 快照: 锁定当前页号 */
 
-    if (page != s_last_page) {
+    if (page != s_last_page) {                  /* 页号变了 → 全屏重绘 */
         s_last_page = page;
         switch (page) {
             case PAGE_DATA:      page_data_draw(data);   break;
@@ -355,7 +363,7 @@ void LCD_Page_Refresh(const SensorData_t *data)
             case PAGE_STATUS:    page_status_draw(data);  break;
             default: break;
         }
-    } else {
+    } else {                                     /* 页号没变 → 数值更新 */
         switch (page) {
             case PAGE_DATA:      page_data_update(data);   break;
             case PAGE_IMU_CHART: page_imu_update(data);    break;

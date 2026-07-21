@@ -17,6 +17,18 @@
   */
 /* USER CODE END Header */
 
+/*
+ * 本文件为空是正常现象。
+ *
+ * CubeMX 配置为将 FreeRTOS 的初始化代码生成到 main.c 中 (USER CODE 区域),
+ * 而不是生成到 freertos.c。所有任务创建、信号量、队列的定义和初始化
+ * 都在 Core/Src/main.c 的 "RTOS Definitions" 部分。
+ *
+ * 如果 CubeMX 的 "Project Manager → Advanced Settings → FreeRTOS" 中
+ * 将 "Generate Code" 设为 "peripheral" 而非 "freertos.c",
+ * 则 FreeRTOS 代码会生成到 main.c, freertos.c 保持空壳。
+ */
+
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
 #include "task.h"

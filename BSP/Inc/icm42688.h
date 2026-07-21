@@ -1,7 +1,8 @@
 /**
  * @file    icm42688.h
  * @brief   ICM-42688 六轴 IMU 驱动 (SPI2, CS=PE7, 与 W25Q128 共享总线)
- * @note    SPI 读写函数已实现, Init/ReadAccel/ReadGyro/ReadTemp 需补充
+ * @note    SPI 读写函数已实现, Init/ReadAccel/ReadGyro/ReadTemp 已实现
+ *          SPI2 互斥锁保护, 与 W25Q128 分时复用 CS
  */
 #ifndef __ICM42688_H
 #define __ICM42688_H

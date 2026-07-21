@@ -2,7 +2,7 @@
  * @file    bluetooth.h
  * @brief   蓝牙模块驱动 + JSON 数据协议 (XW040, USART2, 9600bps)
  * @note    接收: DMA Circular + IDLE 中断不定长; 发送: 阻塞式
- *          === 需要你自己实现 ===
+ *          环形缓冲区 + JSON 解析, 支持 get_temp/get_all/led 命令
  */
 #ifndef __BLUETOOTH_H
 #define __BLUETOOTH_H

@@ -751,9 +751,10 @@ void StartDefaultTask(void *argument)
 
 /* USER CODE BEGIN Header_StartSensorRead */
 /**
-* @brief Function implementing the Task_Sensor_Rea thread.
-* @param argument: Not used
-* @retval None
+* @brief 传感器采集任务 (优先级 AboveNormal3=11, 周期 100ms)
+*        读取 AHT20(温湿度) + INA226(电压/电流/功率) + ICM42688(IMU) + SD3078(RTC),
+*        通过 SensorData_Update() 发布到全局和队列。
+*        首次运行时调用 sensor_init() 初始化各传感器。
 */
 /* USER CODE END Header_StartSensorRead */
 void StartSensorRead(void *argument)
@@ -820,9 +821,9 @@ void StartSensorRead(void *argument)
 
 /* USER CODE BEGIN Header_StartLCDUpdate */
 /**
-* @brief Function implementing the Task_LCD_Update thread.
-* @param argument: Not used
-* @retval None
+* @brief LCD 显示刷新任务 (优先级 Normal2=10, 周期 200ms)
+*        从队列接收最新传感器数据, 调用 LCD_Page_Refresh 刷新屏幕。
+*        不直接修改 g_current_page (页号由按键/EC11 任务控制)。
 */
 /* USER CODE END Header_StartLCDUpdate */
 void StartLCDUpdate(void *argument)
@@ -844,9 +845,10 @@ void StartLCDUpdate(void *argument)
 
 /* USER CODE BEGIN Header_StartTFLog */
 /**
-* @brief Function implementing the Task_TF_Log thread.
-* @param argument: Not used
-* @retval None
+* @brief TF 卡日志任务 (优先级 BelowNormal1=7, 周期 1s)
+*        每秒将传感器数据写入 CSV 文件 (SDIO/FATFS)。
+*        按天分割文件, 跨日自动创建新文件。
+*        f_sync 在每次写入后调用, 最多丢 1 秒数据。
 */
 /* USER CODE END Header_StartTFLog */
 void StartTFLog(void *argument)
@@ -882,9 +884,10 @@ void StartTFLog(void *argument)
 
 /* USER CODE BEGIN Header_StartBluetooth */
 /**
-* @brief Function implementing the Task_Bluetooth thread.
-* @param argument: Not used
-* @retval None
+* @brief 蓝牙通信任务 (优先级 Normal2=10, 每秒推送)
+*        读取传感器数据, 通过 BLUETOOTH_SendSensorData 以 JSON 格式发送。
+*        同时轮询蓝牙命令: get_temp(回复温度)、get_all(回复ok)、led(设置WS2812)。
+*        USART2 DMA+IDLE 接收, 环形缓冲区+JSON解析。
 */
 /* USER CODE END Header_StartBluetooth */
 void StartBluetooth(void *argument)
@@ -938,9 +941,12 @@ void StartBluetooth(void *argument)
 
 /* USER CODE BEGIN Header_StartKeyScan */
 /**
-* @brief Function implementing the Task_Key_Scan thread.
-* @param argument: Not used
-* @retval None
+* @brief 按键 + EC11 扫描任务 (优先级 High4=12, 周期 10ms)
+*        最高优先级, 保证按键响应速度。
+*        KEY_Scan() 完成消抖采样后:
+*          - EC11 正转 → 下一页, 反转 → 上一页
+*          - KEY1 → 下一页, KEY3 → 上一页
+*        翻页带 300ms 冷却, 防止噪声/抖动导致快速连切。
 */
 /* USER CODE END Header_StartKeyScan */
 void StartKeyScan(void *argument)
@@ -995,9 +1001,10 @@ void StartKeyScan(void *argument)
 
 /* USER CODE BEGIN Header_StartWS2812 */
 /**
-* @brief Function implementing the Task_WS2812 thread.
-* @param argument: Not used
-* @retval None
+* @brief WS2812 RGB LED 控制任务 (优先级 Low=4, 周期 50ms)
+*        最低优先级, 不影响其他任务。
+*        根据温度映射颜色: <10°C蓝, 10~20°C青, 20~30°C绿, 30~40°C黄, >40°C红。
+*        TIM5_CH4 PWM+DMA 800KHz 驱动, GRB 格式。
 */
 /* USER CODE END Header_StartWS2812 */
 void StartWS2812(void *argument)

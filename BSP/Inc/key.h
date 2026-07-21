@@ -1,9 +1,9 @@
 /**
  * @file    key.h
  * @brief   按键扫描 + EC11 旋转编码器 (3 按键 + EC11, 10ms 周期)
- * @note    === 需要你自己实现 ===
- *          消抖: 状态机多级采样 (连续 3 次一致才确认)
+ * @note    按键消抖: 状态机多级采样 (连续 3 次一致才确认)
  *          EC11: 查表法 (4-bit 索引 16 项, 根据 AB 相位差判正反转)
+ *          均在 KEY_Scan() 中实现, 由 StartKeyScan 任务每 10ms 调用
  */
 #ifndef __KEY_H
 #define __KEY_H

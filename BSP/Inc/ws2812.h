@@ -2,7 +2,7 @@
  * @file    ws2812.h
  * @brief   WS2812 RGB LED 驱动 (TIM5_CH4 PWM + DMA)
  * @note    800KHz PWM, 3 颗板载 LED, GRB 格式, CPU 零占用
- *          === 需要你自己实现 ===
+ *          温度→颜色映射: 蓝(冷)/青/绿/黄/红(热), 每 50ms 更新
  */
 #ifndef __WS2812_H
 #define __WS2812_H

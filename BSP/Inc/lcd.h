@@ -1,7 +1,8 @@
 /**
  * @file    lcd.h
  * @brief   ST7789V2 LCD 驱动 (SPI1, 21MHz, 240×320, CS=PE14/DC=PD14/RST=PE1)
- * @note    SPI 发送辅助函数已实现, Init/Clear/DrawPixel/DrawString 需补充
+ * @note    SPI1 独占, 函数均已实现: Init/FillRect/DrawString/DrawProgressBar
+ *          含 5×7 ASCII 字库, scale 1~4 缩放
  */
 #ifndef __LCD_H
 #define __LCD_H

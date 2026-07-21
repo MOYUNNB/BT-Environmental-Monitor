@@ -1,7 +1,8 @@
 /**
  * @file    tf_card.h
  * @brief   TF 卡 FATFS 文件系统 + CSV 日志 (SDIO 4-bit, FATFS, 按天分割)
- * @note    CubeMX 已生成 diskio, 应用层需补充 Init/LogSensor/Flush/Deinit
+ * @note    CubeMX 已生成 diskio, 应用层: Init/LogSensor/Flush/Deinit 均已实现
+ *          按天分割文件名 YYYY-MM-DD.csv, 跨日自动建新文件
  */
 #ifndef __TF_CARD_H
 #define __TF_CARD_H
