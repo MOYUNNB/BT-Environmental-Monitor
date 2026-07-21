@@ -200,77 +200,60 @@ void KEY_Init(void)
 
 /*
  * ============================================================
- *  学习笔记: KEY_Scan 实现指南 (这是最关键的函数!)
+ *  学习笔记: KEY_Scan 实现指南
  * ============================================================
  *
  * KEY_Scan 由 StartKeyScan 任务每 10ms 调用一次。
- * 完成按键消抖状态机。
+ * 完成按键消抖状态机，使用 **双变量** 策略:
+ *   - raw:    最新原始采样值 (每次 GPIO 变化立刻更新)
+ *   - stable: 经过消抖确认的稳定状态 (只在一段连续一致后才变化)
+ *   - count:  从当前 raw 开始连续一致的采样次数
  *
- * 按键消抖部分伪代码:
+ * 工作流程:
+ *   对每个按键 i (0=KEY1, 1=KEY2, 2=KEY3):
  *
- *   for (i = 0; i < 3; i++) {
- *       uint8_t level = key_read_raw(i);       // 读 GPIO
- *       if (level == s_keys[i].stable) {        // 和稳定状态一致?
- *           s_keys[i].count++;
- *           if (s_keys[i].count >= KEY_SAMPLE_CNT) {
- *               // 已经连续 N 次一致, 确认状态稳定
- *               if (s_keys[i].stable == 0) {
- *                   // 稳定为按下! 记录按键
- *                   s_pressed = (KeyID_t)(KEY_1 + i);
- *                   // 注意: KEY_1 = 1, KEY_2 = 2, KEY_3 = 3
- *               }
- *               // 计数器保持, 防止再次触发
- *           }
- *       } else {
- *           // 不一致! 可能是抖动, 也可能是真正变化
- *           s_keys[i].raw = level;              // 更新原始值
- *           s_keys[i].count = 0;                // 计数器清零
- *       }
- *   }
+ *   level = key_read_raw(i)
  *
- * 这段逻辑需要自己实现。注意以下几点:
+ *   if (level == raw):
+ *       // 跟上次采样一致 → 递增计数
+ *       count++
+ *       if (count >= 阈值 && stable != level):
+ *           // 连续 N 次一致，确认状态变化
+ *           stable = level
+ *           if (level == 0):  s_pressed = KEY_i
+ *   else:
+ *       // 跟上次不一致 → 更新原始值，计数清零，但不动 stable
+ *       raw = level
+ *       count = 0
  *
- *   1. 什么时候记录按键?
- *      当稳定状态变为 0 (按下) 时记录。
- *      而不是在 count 初次达到 3 时记录。
- *      如果记录条件写在 "level != stable" 分支里,
- *      会导致按键释放也被记录!
- *
- *   2. 如何防止长按重复触发?
- *      在确认 stable=0 后, 不再继续记录。
- *      因为当 stable 已经是 0 时,
- *      level == stable 分支不会触发 s_pressed 更新。
- *      只有 stable 从 1 变成 0 (按下瞬间) 才会触发。
- *
- *   3. count 需要重置吗?
- *      在确认稳定后, 可以让 count 保持 KEY_SAMPLE_CNT。
- *      这样下次变化时 (level != stable),
- *      count=0 重新计数, 状态机正常工作。
+ * 这样设计的优点:
+ *   1. stable 只在连续 N 次一致后才变化 → 真正的消抖
+ *   2. raw 即时更新，后续采样与 raw 比较，不会在噪声误触发
+ *   3. s_pressed 只在按下瞬间触发一次，长按不会重复触发
  */
 void KEY_Scan(void)
 {
     /* === 按键消抖状态机 === */
     for (uint8_t i = 0; i < 3; i++) {
         uint8_t level = key_read_raw(i);
-        if (level == s_keys[i].stable) {
-            /* 和稳定状态一致, 计数值递增 */
+        if (level == s_keys[i].raw) {
+            /* 和原始采样值一致 → 递增连续一致计数 */
             if (s_keys[i].count < KEY_SAMPLE_CNT) {
                 s_keys[i].count++;
             }
-            /* 连续采样一致 → 确认是稳定状态 */
-            if (s_keys[i].count >= KEY_SAMPLE_CNT) {
-                /* 只在从释放(1)变为按下(0)时触发, 防止长按重复 */
-                if (s_keys[i].stable == 0 && s_keys[i].count == KEY_SAMPLE_CNT) {
+            /* 连续一致计数达标 → 确认状态变化 */
+            if (s_keys[i].count >= KEY_SAMPLE_CNT && s_keys[i].stable != level) {
+                s_keys[i].stable = level;           /* 更新稳定状态 */
+                s_keys[i].count = KEY_SAMPLE_CNT;   /* 锁定，防止重复触发 */
+                if (level == 0) {                   /* 0 = 按下 (低电平有效) */
                     s_pressed = (KeyID_t)(KEY_1 + i);
                 }
-                /* 保持 count 为 KEY_SAMPLE_CNT, 下次变化时会清零重新开始 */
             }
         } else {
-            /* 不一致 → 可能是抖动或真正变化, 更新采样值, 计数器清零 */
+            /* 不一致 → 抖动或刚进入新状态，更新原始值，计数器清零 */
             s_keys[i].raw = level;
             s_keys[i].count = 0;
-            /* 更新稳定状态 (连续一致才会确认变化) */
-            s_keys[i].stable = level;
+            /* stable 不在这里更新！只在连续 N 次一致后才更新 */
         }
     }
 
