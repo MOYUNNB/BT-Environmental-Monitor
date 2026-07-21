@@ -33,7 +33,12 @@ static uint8_t  s_log_day   = 0;
 static void get_filename(char *buf, size_t size)
 {
     SD3078_Time_t rtc_time;
-    SD3078_Init(&hi2c1, NULL, NULL);  /* 裸机模式, 确保 RTC 已初始化 */
+    /* 注意: 不要在此处调用 SD3078_Init!
+     * SD3078 已在 sensor_init() 中初始化, 传入的 xSemaphore_I2C 互斥锁句柄有效。
+     * 如果在这里再次调用 SD3078_Init(NULL), 会覆盖 s_sem = NULL,
+     * 导致 TF 任务之后的所有 SD3078 操作失去 I2C 互斥保护,
+     * 与传感器任务并发访问 I2C1 总线 → 数据错乱!
+     */
 
     if (SD3078_GetTime(&rtc_time) == SD3078_OK) {
         snprintf(buf, size, "%04u-%02u-%02u.csv",

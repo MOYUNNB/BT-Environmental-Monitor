@@ -77,10 +77,10 @@ static void page_data_draw(const SensorData_t *data)
 
     y = 62;
     uint16_t tc = temp_color(data->env.temperature);
-    snprintf(buf, sizeof(buf), "%.1f C", (double)data->env.temperature);
+    snprintf(buf, sizeof(buf), "%.1f C ", (double)data->env.temperature);
     LCD_DrawString(4, y, buf, tc, LCD_COLOR_BLACK, 3);
 
-    snprintf(buf, sizeof(buf), "%.1f %%", (double)data->env.humidity);
+    snprintf(buf, sizeof(buf), "%.1f %%  ", (double)data->env.humidity);
     LCD_DrawString(80, y, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 3);
 
     /* ── 温度进度条 ── */
@@ -99,14 +99,14 @@ static void page_data_draw(const SensorData_t *data)
     draw_sensor_led(48, y + 3, !!(data->sensors_ok & SENSOR_OK_INA226));
 
     y = 134;
-    snprintf(buf, sizeof(buf), "%.2f V", (double)data->power.bus_voltage);
+    snprintf(buf, sizeof(buf), "%.2f V ", (double)data->power.bus_voltage);
     LCD_DrawString(4, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
 
-    snprintf(buf, sizeof(buf), "%.3f A", (double)data->power.current);
+    snprintf(buf, sizeof(buf), "%.3f A  ", (double)data->power.current);
     LCD_DrawString(120, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
 
     y = 156;
-    snprintf(buf, sizeof(buf), "%.2f W", (double)data->power.power);
+    snprintf(buf, sizeof(buf), "%.2f W   ", (double)data->power.power);
     LCD_DrawString(4, y, buf, LCD_COLOR_YELLOW, LCD_COLOR_BLACK, 3);
 
     draw_sep(188, LCD_COLOR_GRAY);
@@ -118,24 +118,25 @@ static void page_data_draw(const SensorData_t *data)
     draw_sensor_led(48, y + 3, !!(data->sensors_ok & SENSOR_OK_ICM42688));
 
     y = 208;
-    snprintf(buf, sizeof(buf), "X:%.1f", (double)data->imu.accel_x);
+    snprintf(buf, sizeof(buf), "X:%.1f ", (double)data->imu.accel_x);
     LCD_DrawString(4, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "Y:%.1f", (double)data->imu.accel_y);
+    snprintf(buf, sizeof(buf), "Y:%.1f ", (double)data->imu.accel_y);
     LCD_DrawString(60, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "Z:%.1f", (double)data->imu.accel_z);
+    snprintf(buf, sizeof(buf), "Z:%.1f ", (double)data->imu.accel_z);
     LCD_DrawString(116, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
 
     y = 224;
-    snprintf(buf, sizeof(buf), "X:%.1f", (double)data->imu.gyro_x);
+    snprintf(buf, sizeof(buf), "X:%.1f    ", (double)data->imu.gyro_x);
     LCD_DrawString(120, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "Y:%.1f", (double)data->imu.gyro_y);
+    snprintf(buf, sizeof(buf), "Y:%.1f    ", (double)data->imu.gyro_y);
     LCD_DrawString(176, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "Z:%.1f", (double)data->imu.gyro_z);
+    snprintf(buf, sizeof(buf), "Z:%.1f    ", (double)data->imu.gyro_z);
     LCD_DrawString(120, y + 14, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
 
-    /* ── 底部空白区: 温度柱状图 ── */
+    /* ── 底部空白区: 温度柱状图 (先清理最大区域, 防止缩小后残留) ── */
     {
         float t = data->env.temperature;
+        LCD_FillRect(4, 242, 16, 291, LCD_COLOR_BLACK);     /* 清理整条柱状区域 */
         int16_t bar_h = (int16_t)(t * 4.0f);
         if (bar_h > 50) bar_h = 50;
         if (bar_h < 0) bar_h = 0;
@@ -177,10 +178,11 @@ static void page_imu_draw(const SensorData_t *data)
     snprintf(buf, sizeof(buf), "Z: %+.2f", (double)az);
     LCD_DrawString(4, y + 44, buf, LCD_COLOR_BLUE, LCD_COLOR_BLACK, 2);
 
-    /* ── 加速度柱状图 ── */
+    /* ── 加速度柱状图 (先清理整条柱状区域, 防止缩小后残留) ── */
     {
         uint16_t bar_y = y + 2;
         uint16_t bar_base = bar_y + 60;
+        LCD_FillRect(160, 42, 235, 127, LCD_COLOR_BLACK);   /* 清理加速度柱状区域 */
         int16_t bx = (int16_t)(ax * 30.0f);
         int16_t by_ = (int16_t)(ay * 30.0f);
         int16_t bz = (int16_t)(az * 30.0f);
@@ -219,10 +221,11 @@ static void page_imu_draw(const SensorData_t *data)
     snprintf(buf, sizeof(buf), "Z: %+.1f", (double)data->imu.gyro_z);
     LCD_DrawString(4, y + 44, buf, LCD_COLOR_MAGENTA, LCD_COLOR_BLACK, 2);
 
-    /* ── 陀螺仪柱状图 ── */
+    /* ── 陀螺仪柱状图 (先清理整条柱状区域, 防止缩小后残留) ── */
     {
         uint16_t gy = y + 2;
         uint16_t gbase = gy + 60;
+        LCD_FillRect(160, 150, 235, 265, LCD_COLOR_BLACK);  /* 清理陀螺仪柱状区域 */
         int16_t gx = (int16_t)(data->imu.gyro_x / 4.0f);
         int16_t gy_v = (int16_t)(data->imu.gyro_y / 4.0f);
         int16_t gz = (int16_t)(data->imu.gyro_z / 4.0f);
@@ -246,7 +249,7 @@ static void page_imu_draw(const SensorData_t *data)
     /* ── IMU 温度 ── */
     {
         uint16_t ty = 256;
-        snprintf(buf, sizeof(buf), "IMU Temp: %.1f C", (double)data->imu.temp_c);
+        snprintf(buf, sizeof(buf), "IMU Die: %.1f C", (double)data->imu.temp_c);
         LCD_DrawString(4, ty, buf, LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
     }
 
@@ -271,7 +274,7 @@ static void page_status_draw(const SensorData_t *data)
 
     /* ── 序列号 ── */
     y = 30;
-    snprintf(buf, sizeof(buf), "Seq #%lu", (unsigned long)data->seq_num);
+    snprintf(buf, sizeof(buf), "Seq #%lu         ", (unsigned long)data->seq_num);
     LCD_DrawString(4, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
 
     draw_sep(52, LCD_COLOR_GRAY);
@@ -310,7 +313,7 @@ static void page_status_draw(const SensorData_t *data)
     /* ── 温度概览 ── */
     y = 274;
     uint16_t tc = temp_color(data->env.temperature);
-    snprintf(buf, sizeof(buf), "Temp: %.1f C", (double)data->env.temperature);
+    snprintf(buf, sizeof(buf), "Temp: %.1f C  ", (double)data->env.temperature);
     LCD_DrawString(4, y, buf, tc, LCD_COLOR_BLACK, 2);
 
     draw_status_bar(data);
