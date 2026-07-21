@@ -72,16 +72,16 @@ static void page_data_draw(const SensorData_t *data)
     /* ── 温湿度 (AHT20) ── */
     y = 50;
     LCD_DrawString(4, y, "TEMP", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
-    LCD_DrawString(80, y, "HUMI", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
-    draw_sensor_led(40, y + 3, !!(data->sensors_ok & SENSOR_OK_AHT20));
+    draw_sensor_led(30, y + 3, !!(data->sensors_ok & SENSOR_OK_AHT20));
+    LCD_DrawString(48, y, "HUMI", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
 
     y = 62;
     uint16_t tc = temp_color(data->env.temperature);
     snprintf(buf, sizeof(buf), "%.1f C ", (double)data->env.temperature);
-    LCD_DrawString(4, y, buf, tc, LCD_COLOR_BLACK, 3);
+    LCD_DrawString(4, y, buf, tc, LCD_COLOR_BLACK, 2);
 
     snprintf(buf, sizeof(buf), "%.1f %%  ", (double)data->env.humidity);
-    LCD_DrawString(80, y, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 3);
+    LCD_DrawString(100, y, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 2);
 
     /* ── 温度进度条 ── */
     {
@@ -279,12 +279,12 @@ static void page_status_draw(const SensorData_t *data)
 
     draw_sep(52, LCD_COLOR_GRAY);
 
-    /* ── 传感器状态 (大字+色块) ── */
+    /* ── 传感器状态 (色块 + 名称 + OK/ERROR) ── */
     struct { const char *name; uint8_t mask; uint16_t y; } sensors[] = {
         {"AHT20",    SENSOR_OK_AHT20,    64},
-        {"INA226",   SENSOR_OK_INA226,   108},
-        {"ICM42688", SENSOR_OK_ICM42688, 152},
-        {"SD3078",   SENSOR_OK_SD3078,   196},
+        {"INA226",   SENSOR_OK_INA226,   112},
+        {"ICM42688", SENSOR_OK_ICM42688, 160},
+        {"SD3078",   SENSOR_OK_SD3078,   208},
     };
 
     for (int i = 0; i < 4; i++) {
@@ -292,18 +292,18 @@ static void page_status_draw(const SensorData_t *data)
         uint16_t sy = sensors[i].y;
         uint16_t sc = ok ? LCD_COLOR_GREEN : LCD_COLOR_RED;
 
-        /* 状态色块 */
-        LCD_FillRect(8, sy, 56, sy + 24, sc);
+        /* 状态色块 (加宽到 64, 容纳 scale=1 的传感器名) */
+        LCD_FillRect(8, sy, 64, sy + 24, sc);
 
-        /* 传感器名称 (白色/黑色前景, 取决于底色) */
-        LCD_DrawString(12, sy + 6, sensors[i].name, LCD_COLOR_BLACK, sc, 2);
+        /* 传感器名称 (scale=1, 避免溢出色块覆盖右侧状态文字) */
+        LCD_DrawString(12, sy + 8, sensors[i].name, LCD_COLOR_BLACK, sc, 1);
 
-        /* 状态文字 */
-        LCD_DrawString(68, sy + 6, ok ? "OK" : "ERROR", sc, LCD_COLOR_BLACK, 2);
+        /* 状态文字 (padding 对齐 "ERROR" 宽度, 消除切换残留) */
+        LCD_DrawString(76, sy + 6, ok ? "OK    " : "ERROR", sc, LCD_COLOR_BLACK, 2);
     }
 
     /* ── 系统时间 ── */
-    y = 248;
+    y = 256;
     snprintf(buf, sizeof(buf), "RTC: %02u:%02u:%02u",
              (unsigned)data->timestamp.hour,
              (unsigned)data->timestamp.minute,
@@ -311,7 +311,7 @@ static void page_status_draw(const SensorData_t *data)
     LCD_DrawString(4, y, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 2);
 
     /* ── 温度概览 ── */
-    y = 274;
+    y = 284;
     uint16_t tc = temp_color(data->env.temperature);
     snprintf(buf, sizeof(buf), "Temp: %.1f C  ", (double)data->env.temperature);
     LCD_DrawString(4, y, buf, tc, LCD_COLOR_BLACK, 2);
