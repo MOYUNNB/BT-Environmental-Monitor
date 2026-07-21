@@ -18,6 +18,7 @@
 9. [BSP 驱动的接口设计模式](#9-bsp-驱动的接口设计模式)
 10. [LCD 背光控制与上电时序优化](#10-lcd-背光控制与上电时序优化)
 11. [从 CubeMX 骨架到完整系统](#11-从-cubemx-骨架到完整系统)
+12. [按键消抖状态机重写 — 页面自己跳的根因](#12-按键消抖状态机重写--页面自己跳的根因)
 
 ---
 
@@ -388,6 +389,106 @@ FRESULT TF_LogSensor(const SensorData_t *data)
 - **`f_sync` vs `f_close`？** `f_sync` 刷新缓冲区但不关闭文件（可继续写），`f_close` 既刷又关
 - **为什么按天分割？** 单文件不会过大，方便数据管理
 - **另一个方案：** 如果追求更高可靠性，可以使用双文件轮流写入策略
+
+---
+
+## 12. 按键消抖状态机重写 — 页面自己跳的根因
+
+### S — Situation
+
+项目使用 3 个按键（PA0、PE8、PC13）切换 LCD 页面，KEY1 下一页、KEY3 上一页。上电后 LCD 页面会"自己跳"——没有按键操作时也自动切页。此前尝试过多种方案：
+- 增加 EC11 消抖（排除 EC11 干扰）
+- 增加 300ms 翻页冷却
+- 去掉 EC11 整个模块
+
+但问题依旧。LCD 页面仍然每隔约 1 秒自动循环一遍（PAGE_DATA → PAGE_IMU_CHART → PAGE_STATUS → PAGE_DATA → ...）。
+
+### T — Task
+
+找到"页面自己跳"的根因并修复。涉及：按键消抖算法、页面切换逻辑、清屏机制三个环节，需要逐一排查。
+
+### A — Action
+
+**第一步：检查页面切换调用链**
+
+跟踪 `g_current_page` 的所有修改点，发现只有 KEY1/KEY3 在 `StartKeyScan` 任务中调用 `LCD_Page_Switch()` 才会改页号。没有其他代码路径能触发页面切换。问题定位到按键消抖层。
+
+**第二步：审查消抖算法，发现 3 个 bug**
+
+```c
+// 原消抖算法（简化）
+for (i = 0; i < 3; i++) {
+    level = key_read_raw(i);
+    if (level == s_keys[i].stable) {        // 跟稳定状态比
+        s_keys[i].count++;
+        if (s_keys[i].count >= 3) {
+            if (s_keys[i].stable == 0)      // 按下?
+                s_pressed = KEY_i;          // ← Bug 2
+        }
+    } else {
+        s_keys[i].count = 0;
+        s_keys[i].stable = level;           // ← Bug 1: 立即更新 stable
+    }
+}
+```
+
+**Bug 1 — 稳定状态无消抖：** `else` 分支中 `stable = level` 在第一个不匹配样本就执行了。注释写"连续一致才会确认变化"，代码做的正好相反。等于没有消抖——任何噪声脉冲的第一拍就直接改了 `stable`。
+
+**Bug 2 — 长按持续触发：** `s_pressed = KEY_i` 的条件是 `stable==0 && count>=3`，按键按住期间每 10ms 都为 true。`s_pressed` 每扫描周期都被设置，`KEY_GetPressed()` 每次调用都有返回值。虽然 `StartKeyScan` 有 300ms 冷却，但冷却一过就再次切页。**按住按键（或引脚有噪声）导致每 300ms 自动翻一页。**
+
+**Bug 3 — LCD_Page_Switch 误设 s_last_page：** `LCD_Page_Switch()` 同时设了 `g_current_page` 和 `s_last_page`，导致 `LCD_Page_Refresh()` 中 `page != s_last_page` 永远为假，清屏+全屏重绘分支永不执行。即使新页面的内容不覆盖上一页的所有区域，上一页的残留也不清除。
+
+**第三步：重写消抖算法 — 双变量状态机**
+
+核心思想：从比较 `level == stable` 改为比较 `level == raw`（最新原始采样值）。`stable` 只在连续 N 次一致后才更新，不在 `else` 分支中立即改。
+
+```c
+// 新算法（双变量）
+for (i = 0; i < 3; i++) {
+    level = key_read_raw(i);
+    if (level == s_keys[i].raw) {               // 跟原始采样值比，不是 stable
+        s_keys[i].count++;
+        if (s_keys[i].count >= 3 && s_keys[i].stable != level) {
+            s_keys[i].stable = level;           // 连续 3 次一致才更新
+            s_keys[i].count = 3;                // 锁定，防止重复触发
+            if (level == 0)                     // 只在按下瞬间触发一次
+                s_pressed = KEY_i;
+        }
+    } else {
+        s_keys[i].raw = level;                  // 更新最新采样值
+        s_keys[i].count = 0;                    // 计数清零
+        // stable 不动！只有连续一致后才更新
+    }
+}
+```
+
+关键区别：
+- `stable` 不会在 `else` 分支中更新，只在连续 N 次一致后更新 → **真正的消抖**
+- `stable != level` 防止按住期间重复触发 → **只触发一次**
+- `raw` 追踪最新采样值，后续采样跟 `raw` 比，噪声不会误改 `stable`
+
+**第四步：修复 LCD_Page_Switch**
+
+去掉 `s_last_page = page` 的赋值，`s_last_page` 只在 `LCD_Page_Refresh` 完成全屏绘制后更新。同时在 `page != s_last_page` 分支开头加 `LCD_Clear(BLACK)` 确保切换时清屏。
+
+### R — Result
+
+三个 bug 全部修复后，按键行为变为：
+
+| 场景 | 旧行为 | 新行为 |
+|------|--------|--------|
+| 按键按下 | 40ms 后触发（等效无消抖） | 40ms 后触发（3 次确认） |
+| 按住按键不放 | 每 300ms 自动翻页 | 只触发一次，不再重复 |
+| 页面切换 | 上一页内容残留 | 清屏后绘制，画面干净 |
+| GPIO 噪声 | 30ms 噪声脉冲 → 误触发 | 30ms 噪声 → 被消抖过滤 |
+
+**根因总结：** "页面自己跳"不是单一 bug 导致，而是三个问题叠加 —— 消抖没生效（噪声可触发）、按住持续写 `s_pressed`（冷却后继续切页）、以及全屏重绘分支被屏蔽（清屏从不执行）。三者共同造成"页面每隔约 1 秒自动循环一遍"的观感。
+
+**面试追问准备：**
+- **为什么原设计用 `stable` 做比较？** 设计意图是跟踪"稳定后的状态"，但实现时在 else 分支直接更新 stable 破坏了消抖。本质是"伪状态机"——看起来有消抖，实际没有。
+- **新算法为什么用 `raw` 做参考？** `raw` 是最近一次采样值，不稳定但最新。`stable` 是经过消抖确认的值，稳定但不即时。用 `raw` 做参考，噪声只影响 `raw` 和 `count`，不影响 `stable`。
+- **为什么 `count = 3` 后就锁定？** 防止 `stable` 更新后 `count` 继续增长，导致 `stable != level` 条件再次满足时误判为新变化。
+- **硬件 pull-up 没用吗？** PA0/PC13 都配置了内部 pull-up，但长约 10cm 的飞线在电磁干扰环境中可能耦合噪声。软件消抖是最后一层防线。
 
 ---
 
