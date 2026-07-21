@@ -770,16 +770,53 @@ void StartSensorRead(void *argument)
     SensorData_t data = {0};
     data.seq_num = seq++;
 
-    /* 1. 读取 SD3078 RTC 时间 */
-    SD3078_Time_t rtc;
-    if (SD3078_GetTime(&rtc) == SD3078_OK) {
-      data.timestamp.year    = rtc.year;
-      data.timestamp.month   = rtc.month;
-      data.timestamp.day     = rtc.day;
-      data.timestamp.hour    = rtc.hour;
-      data.timestamp.minute  = rtc.minute;
-      data.timestamp.second  = rtc.second;
-      data.sensors_ok |= SENSOR_OK_SD3078;
+    /* 1. 读取 SD3078 RTC 时间 (无后备电池, 每次上电从 2026-01-01 开始) */
+    {
+      static SD3078_Time_t s_last_rtc = {
+          .year = 2026, .month = 1, .day = 1,
+          .weekday = 4, .hour = 0, .minute = 0, .second = 0,
+      };
+      static uint8_t  s_rtc_once     = 0;  /* 首次上电时已设默认时间 */
+      static uint32_t s_rtc_ref_tick = 0;  /* 上一次成功读时的系统 tick */
+      static uint32_t s_rtc_ref_sec  = 0;  /* 上一次成功读时的当日秒数 */
+
+      SD3078_Time_t rtc;
+      if (SD3078_GetTime(&rtc) == SD3078_OK) {
+        s_last_rtc    = rtc;
+        s_rtc_ref_tick = osKernelGetTickCount();
+        s_rtc_ref_sec  = (uint32_t)rtc.hour   * 3600U
+                       + (uint32_t)rtc.minute * 60U
+                       + (uint32_t)rtc.second;
+        s_rtc_once = 1;
+        data.timestamp.year   = rtc.year;
+        data.timestamp.month  = rtc.month;
+        data.timestamp.day    = rtc.day;
+        data.timestamp.hour   = rtc.hour;
+        data.timestamp.minute = rtc.minute;
+        data.timestamp.second = rtc.second;
+        data.sensors_ok |= SENSOR_OK_SD3078;
+      } else {
+        /* 读失败 (I2C 偶发错误 / 首次上电):
+         * 基于系统 tick 推算当前时间, 保证显示连续不卡顿.
+         * 日期固定为最后一次成功读值, 待下次 RTC 成功读时自动校正. */
+        if (!s_rtc_once) {
+            s_rtc_once = 1;
+            if (SD3078_SetTime(&s_last_rtc) == SD3078_OK)
+                printf("[SD3078] RTC default time set (2026-01-01)\r\n");
+            else
+                printf("[SD3078] FAIL to set default time\r\n");
+            s_rtc_ref_tick = osKernelGetTickCount();
+            s_rtc_ref_sec  = 0;
+        }
+        uint32_t elapsed_ms = osKernelGetTickCount() - s_rtc_ref_tick;
+        uint32_t cur_sec    = s_rtc_ref_sec + (elapsed_ms / 1000U);
+        data.timestamp.year   = s_last_rtc.year;
+        data.timestamp.month  = s_last_rtc.month;
+        data.timestamp.day    = s_last_rtc.day;
+        data.timestamp.hour   = (uint8_t)((cur_sec / 3600U) % 24U);
+        data.timestamp.minute = (uint8_t)((cur_sec % 3600U) / 60U);
+        data.timestamp.second = (uint8_t)(cur_sec % 60U);
+      }
     }
 
     /* 2. 读取 AHT20 温湿度 */
