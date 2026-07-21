@@ -946,30 +946,44 @@ void StartBluetooth(void *argument)
 void StartKeyScan(void *argument)
 {
   /* USER CODE BEGIN StartKeyScan */
+  uint32_t last_switch_tick = 0;
+
   for(;;)
   {
     KEY_Scan();
 
-    /* EC11 翻页 */
+    /* EC11 翻页 (带冷却: 300ms 内不重复切换) */
     int8_t delta = EC11_GetDelta();
-    if (delta > 0) {
-      PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
-      LCD_Page_Switch(next);
-    } else if (delta < 0) {
-      PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
-      LCD_Page_Switch(prev);
+    if (delta != 0) {
+      uint32_t now = osKernelGetTickCount();
+      if (now - last_switch_tick >= pdMS_TO_TICKS(300U)) {
+        last_switch_tick = now;
+        if (delta > 0) {
+          PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
+          LCD_Page_Switch(next);
+        } else {
+          PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
+          LCD_Page_Switch(prev);
+        }
+      }
     }
 
-    /* 按键处理 */
+    /* 按键处理 (带冷却) */
     KeyID_t key = KEY_GetPressed();
     if (key == KEY_1) {
-      /* KEY1: 下一页 */
-      PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
-      LCD_Page_Switch(next);
+      uint32_t now = osKernelGetTickCount();
+      if (now - last_switch_tick >= pdMS_TO_TICKS(300U)) {
+        last_switch_tick = now;
+        PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
+        LCD_Page_Switch(next);
+      }
     } else if (key == KEY_3) {
-      /* KEY3 (板载按键): 上一页 */
-      PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
-      LCD_Page_Switch(prev);
+      uint32_t now = osKernelGetTickCount();
+      if (now - last_switch_tick >= pdMS_TO_TICKS(300U)) {
+        last_switch_tick = now;
+        PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
+        LCD_Page_Switch(prev);
+      }
     } else if (key == KEY_2) {
       /* KEY2: 预留功能 (当前无操作) */
     }

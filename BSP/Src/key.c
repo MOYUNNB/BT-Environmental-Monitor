@@ -156,10 +156,22 @@ static KeyID_t    s_pressed = KEY_NONE;
 /*
  * EC11 状态变量:
  *   s_ec11_delta: 累计旋转步数 (正=顺时针, 负=逆时针)
- *   s_ec11_last_ab: 上一次采样的 AB 相状态 (2-bit 值)
+ *   s_ec11_last_ab: 上一次确认的 AB 相稳定状态 (2-bit 值)
+ *   s_ec11_sample:  当前正在采样的 AB 候选值
+ *   s_ec11_count:   连续一致的采样次数 (消抖)
+ *
+ * EC11 消抖说明:
+ *   与按键类似, EC11 的机械触点也会抖动。
+ *   虽然硬件有上拉, 但外部噪声仍可能耦合到 AB 线上。
+ *   要求连续 EC11_DEBOUNCE_CNT 次采样一致才确认状态变化,
+ *   有效过滤噪声引起的误触发。
  */
-static int8_t s_ec11_delta = 0;
+#define EC11_DEBOUNCE_CNT  3U     /* 消抖次数: 3×10ms=30ms 滤波 */
+
+static int8_t  s_ec11_delta = 0;
 static uint8_t s_ec11_last_ab = 0;
+static uint8_t s_ec11_sample = 0;
+static uint8_t s_ec11_count  = 0;
 
 /*
  * ============================================================
@@ -309,6 +321,8 @@ void KEY_Init(void)
     s_pressed = KEY_NONE;
     s_ec11_delta = 0;
     s_ec11_last_ab = ec11_read_ab();
+    s_ec11_sample  = s_ec11_last_ab;
+    s_ec11_count   = EC11_DEBOUNCE_CNT;  /* 初始状态直接视为已消抖确认 */
 }
 
 /*
@@ -407,12 +421,23 @@ void KEY_Scan(void)
         }
     }
 
-    /* === EC11 查表解码 === */
+    /* === EC11 查表解码 (带消抖) === */
     uint8_t ab = ec11_read_ab();
-    if (ab != s_ec11_last_ab) {
-        uint8_t idx = (uint8_t)((s_ec11_last_ab << 2) | ab);
-        s_ec11_delta += ec11_table[idx];
-        s_ec11_last_ab = ab;
+    if (ab != s_ec11_sample) {
+        /* 新采样值与当前候选值不同 → 可能是抖动或刚进入新状态 */
+        s_ec11_sample = ab;
+        s_ec11_count = 0;
+    } else {
+        /* 与候选值一致 → 递增消抖计数 */
+        if (s_ec11_count < EC11_DEBOUNCE_CNT) {
+            s_ec11_count++;
+        }
+        /* 消抖确认后, 检查是否与上次稳定状态不同 */
+        if (s_ec11_count >= EC11_DEBOUNCE_CNT && ab != s_ec11_last_ab) {
+            uint8_t idx = (uint8_t)((s_ec11_last_ab << 2) | ab);
+            s_ec11_delta += ec11_table[idx];
+            s_ec11_last_ab = ab;
+        }
     }
 }
 

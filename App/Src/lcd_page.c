@@ -340,16 +340,23 @@ void LCD_Page_Refresh(const SensorData_t *data)
 {
     if (data == NULL) return;
 
-    if (g_current_page != s_last_page) {
-        s_last_page = g_current_page;
-        switch (g_current_page) {
+    /*
+     * 拍摄当前页快照, 防止 KeyScan (更高优先级) 在绘制过程中
+     * 修改了 g_current_page 导致画错页面。
+     * 若 KeyScan 在拍摄后改变了页号, 下次 Refresh 才会响应。
+     */
+    PageID_t page = g_current_page;
+
+    if (page != s_last_page) {
+        s_last_page = page;
+        switch (page) {
             case PAGE_DATA:      page_data_draw(data);   break;
             case PAGE_IMU_CHART: page_imu_draw(data);    break;
             case PAGE_STATUS:    page_status_draw(data);  break;
             default: break;
         }
     } else {
-        switch (g_current_page) {
+        switch (page) {
             case PAGE_DATA:      page_data_update(data);   break;
             case PAGE_IMU_CHART: page_imu_update(data);    break;
             case PAGE_STATUS:    page_status_update(data);  break;
