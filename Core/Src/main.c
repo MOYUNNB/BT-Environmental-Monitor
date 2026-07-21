@@ -823,7 +823,7 @@ void StartSensorRead(void *argument)
 /**
 * @brief LCD 显示刷新任务 (优先级 Normal2=10, 周期 200ms)
 *        从队列接收最新传感器数据, 调用 LCD_Page_Refresh 刷新屏幕。
-*        不直接修改 g_current_page (页号由按键/EC11 任务控制)。
+*        不直接修改 g_current_page (页号由按键任务控制)。
 */
 /* USER CODE END Header_StartLCDUpdate */
 void StartLCDUpdate(void *argument)
@@ -941,12 +941,12 @@ void StartBluetooth(void *argument)
 
 /* USER CODE BEGIN Header_StartKeyScan */
 /**
-* @brief 按键 + EC11 扫描任务 (优先级 High4=12, 周期 10ms)
+* @brief 按键扫描任务 (优先级 High4=12, 周期 10ms)
 *        最高优先级, 保证按键响应速度。
 *        KEY_Scan() 完成消抖采样后:
-*          - EC11 正转 → 下一页, 反转 → 上一页
 *          - KEY1 → 下一页, KEY3 → 上一页
 *        翻页带 300ms 冷却, 防止噪声/抖动导致快速连切。
+*        EC11 已移除, 仅保留按键翻页。
 */
 /* USER CODE END Header_StartKeyScan */
 void StartKeyScan(void *argument)
@@ -958,23 +958,7 @@ void StartKeyScan(void *argument)
   {
     KEY_Scan();
 
-    /* EC11 翻页 (带冷却: 300ms 内不重复切换) */
-    int8_t delta = EC11_GetDelta();
-    if (delta != 0) {
-      uint32_t now = osKernelGetTickCount();
-      if (now - last_switch_tick >= pdMS_TO_TICKS(300U)) {
-        last_switch_tick = now;
-        if (delta > 0) {
-          PageID_t next = (PageID_t)((g_current_page + 1) % PAGE_COUNT);
-          LCD_Page_Switch(next);
-        } else {
-          PageID_t prev = (PageID_t)((g_current_page + PAGE_COUNT - 1) % PAGE_COUNT);
-          LCD_Page_Switch(prev);
-        }
-      }
-    }
-
-    /* 按键处理 (带冷却) */
+    /* 按键处理 (带冷却: 300ms 内不重复切换) */
     KeyID_t key = KEY_GetPressed();
     if (key == KEY_1) {
       uint32_t now = osKernelGetTickCount();

@@ -2,7 +2,7 @@
  * @file    lcd_page.h
  * @brief   多页显示框架
  * @note    定义三个显示页面: 数据页、IMU 图表页、状态页, 以及页面切换逻辑
- *          由 EC11 编码器切换页面, KEY1 返回首页
+ *          KEY1→下一页, KEY3→上一页
  */
 #ifndef __LCD_PAGE_H
 #define __LCD_PAGE_H
@@ -22,7 +22,7 @@ typedef enum {
     PAGE_COUNT
 } PageID_t;
 
-/* 当前页面编号 (由按键/EC11 任务修改, LCD 任务读取) */
+/* 当前页面编号 (由按键任务修改, LCD 任务读取) */
 extern PageID_t g_current_page;
 
 /**

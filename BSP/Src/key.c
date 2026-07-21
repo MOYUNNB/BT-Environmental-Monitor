@@ -1,15 +1,12 @@
 /**
  * @file    key.c
- * @brief   按键扫描 + EC11 旋转编码器驱动实现
+ * @brief   按键扫描驱动实现
  * @note    由 Task_Key_Scan (10ms 周期) 驱动。
  *
  * 按键消抖: 3 次连续采样一致才确认按下/释放。
- * EC11: 查表法。AB 相每变化一次, 查前一次状态+新状态
- * 组成的 4bit 值在方向表中对应 CW 或 CCW。
  *
  * 参考:
  *   GPIO EXTI: fdb-master/0_example/GPIO/gpio-key-exti-project
- *   EC11:      fdb-master/0_example/TIMER/timer-ec11-encoder-project
  */
 #include "key.h"
 
@@ -18,7 +15,7 @@
  *  学习笔记: 引脚定义
  * ============================================================
  *
- * 3 个按键 + 1 个 EC11 编码器:
+ * 3 个按键:
  *
  *   按键 1 (KEY1): PA0
  *     普通 GPIO 输入, 外部上拉 (或内部上拉)。
@@ -34,12 +31,6 @@
  *     注意: PC13 也是 RTC 校准输出和 TAMPER 引脚,
  *     如果用作普通 GPIO, 需要在 CubeMX 中禁用其他功能。
  *
- *   EC11 A 相: PD12
- *   EC11 B 相: PD13
- *     通常需要外部上拉电阻 (10kΩ 到 VCC)。
- *     EC11 本质是机械开关, 内部没有上拉。
- *     如果未接外部上拉, 需要在 CubeMX 中开启内部上拉 (GPIO_PULLUP)。
- *
  * 内部上拉 vs 外部上拉:
  *   内部上拉: 约 30~50kΩ (STM32F407 典型值)
  *             优点: 省 PCB 面积, 少一个电阻
@@ -48,7 +39,7 @@
  *             优点: 更强的抗干扰, 更快的上升沿
  *             缺点: 需要额外电阻
  *
- * 注意: 按键和 EC11 引脚在 CubeMX 中配置为:
+ * 注意: 按键引脚在 CubeMX 中配置为:
  *   GPIO Mode: Input mode
  *   GPIO Pull-up/Pull-down: Pull-up (如果无外部上拉)
  *   不要开 GPIO 的 Alternate Function!
@@ -61,11 +52,6 @@
 #define KEY2_PIN        GPIO_PIN_8
 #define KEY3_PORT       GPIOC
 #define KEY3_PIN        GPIO_PIN_13
-
-#define EC11_A_PORT     GPIOD
-#define EC11_A_PIN      GPIO_PIN_12
-#define EC11_B_PORT     GPIOD
-#define EC11_B_PIN      GPIO_PIN_13
 
 /*
  * 消抖参数说明:
@@ -153,95 +139,6 @@ typedef struct {
 static KeyState_t s_keys[3];
 static KeyID_t    s_pressed = KEY_NONE;
 
-/*
- * EC11 状态变量:
- *   s_ec11_delta: 累计旋转步数 (正=顺时针, 负=逆时针)
- *   s_ec11_last_ab: 上一次确认的 AB 相稳定状态 (2-bit 值)
- *   s_ec11_sample:  当前正在采样的 AB 候选值
- *   s_ec11_count:   连续一致的采样次数 (消抖)
- *
- * EC11 消抖说明:
- *   与按键类似, EC11 的机械触点也会抖动。
- *   虽然硬件有上拉, 但外部噪声仍可能耦合到 AB 线上。
- *   要求连续 EC11_DEBOUNCE_CNT 次采样一致才确认状态变化,
- *   有效过滤噪声引起的误触发。
- */
-#define EC11_DEBOUNCE_CNT  3U     /* 消抖次数: 3×10ms=30ms 滤波 */
-
-static int8_t  s_ec11_delta = 0;
-static uint8_t s_ec11_last_ab = 0;
-static uint8_t s_ec11_sample = 0;
-static uint8_t s_ec11_count  = 0;
-
-/*
- * ============================================================
- *  学习笔记: EC11 方向表 — 查表法解码详解
- * ============================================================
- *
- * 索引 = (s_ec11_last_ab << 2) | current_ab
- *       ↑ 上一次的 AB 状态  ↑ 当前的 AB 状态
- *       各占 2 bit
- *
- *   例如:
- *     上次: A=1, B=0 → last_ab = 0b10 = 2
- *     当前: A=1, B=1 → current_ab = 0b11 = 3
- *     索引: (2 << 2) | 3 = 8 | 3 = 11
- *
- *   ec11_table[11] = -1 (反转)
- *
- * 表格推导:
- *   合法的状态迁移 (每次只变化一个 bit):
- *     00 → 01 (CW), 00 → 10 (CCW)
- *     01 → 00 (CCW), 01 → 11 (CW)
- *     10 → 00 (CW), 10 → 11 (CCW)
- *     11 → 01 (CCW), 11 → 10 (CW)
- *
- *   所有 16 种组合:
- *     索引 [上次][当前]  方向  说明
- *     0    00→00       0     没转
- *     1    00→01       +1    CW (01 比 00 多了一个 B)
- *     2    00→10       -1    CCW (10 比 00 多了一个 A)
- *     3    00→11       0     非法 (跳过中间状态)
- *     4    01→00       -1    CCW (00 比 01 少了 B)
- *     5    01→01       0     没转
- *     6    01→10       0     非法 (同时变了 A 和 B)
- *     7    01→11       +1    CW (11 比 01 多了 A)
- *     8    10→00       +1    CW (00 比 10 少了 A)
- *     9    10→01       0     非法 (同时变了 A 和 B)
- *     10   10→10       0     没转
- *     11   10→11       -1    CCW (11 比 10 多了 B)
- *     12   11→00       0     非法 (同时变了两位)
- *     13   11→01       -1    CCW (01 比 11 少了 A)
- *     14   11→10       +1    CW (10 比 11 少了 B)
- *     15   11→11       0     没转
- *
- *   规律: CW 出现在索引 1, 7, 8, 14 (二进制: 0001, 0111, 1000, 1110)
- *         CCW 出现在索引 2, 4, 11, 13 (二进制: 0010, 0100, 1011, 1101)
- *
- *   为什么非法状态返回 0?
- *     两个 bit 同时变化意味着 10ms 的采样间隔内
- *     EC11 旋转了超过一格。这可能是因为:
- *       - 旋转太快 (采样周期太长)
- *       - EC11 机械故障
- *     忽略这些变化, 等待下一次有效的变化。
- *
- *   注意: 查询 EC11 数据手册, 确认旋转一圈产生多少个脉冲。
- *   通常有 15、20、30 脉冲/圈 (取决于型号)。
- *   如果需要精确的角度测量, 需要按脉冲数换算。
- */
-
-/*
- * EC11 方向表:
- * 索引 = (上次_AB << 2) | 当前_AB
- * 值: 0=无变化, 1=CW, -1=CCW
- */
-static const int8_t ec11_table[16] = {
-     0,  1, -1,  0,   /* 00 → 00,01,10,11 */
-    -1,  0,  0,  1,   /* 01 → 00,01,10,11 */
-     1,  0,  0, -1,   /* 10 → 00,01,10,11 */
-     0, -1,  1,  0,   /* 11 → 00,01,10,11 */
-};
-
 /* ---- 读引脚电平 ---- */
 
 /*
@@ -267,24 +164,6 @@ static uint8_t key_read_raw(uint8_t idx)
     }
 }
 
-/*
- * 读取 EC11 的 A/B 相电平, 组合为一个 2-bit 值:
- *   bit1 = A 相电平
- *   bit0 = B 相电平
- *
- * 例如: A=1, B=0 → 返回 0b10 = 2
- *
- * 注意: EC11 的 A/B 相哪个接高 bit 取决于 PCB 布局。
- * 如果旋转方向反了 (CW 变成 CCW),
- * 交换 (a<<1)|b 为 (b<<1)|a 即可。
- */
-static uint8_t ec11_read_ab(void)
-{
-    uint8_t a = (uint8_t)HAL_GPIO_ReadPin(EC11_A_PORT, EC11_A_PIN);
-    uint8_t b = (uint8_t)HAL_GPIO_ReadPin(EC11_B_PORT, EC11_B_PIN);
-    return (a << 1) | b;
-}
-
 /* ---- 对外接口 ---- */
 
 /*
@@ -300,8 +179,6 @@ static uint8_t ec11_read_ab(void)
  *       s_keys[i].count  = 0;  // 一致计数器清零
  *   }
  *   s_pressed = KEY_NONE;       // 清除按下的按键记录
- *   s_ec11_delta = 0;           // 清除 EC11 步数
- *   s_ec11_last_ab = ec11_read_ab();  // 记录当前 AB 状态
  *
  * 为什么不直接读 GPIO 来初始化 raw/stable?
  *   因为首次调用 KEY_Init 时, GPIO 可能已经初始化完毕,
@@ -319,10 +196,6 @@ void KEY_Init(void)
         s_keys[i].count  = 0U;
     }
     s_pressed = KEY_NONE;
-    s_ec11_delta = 0;
-    s_ec11_last_ab = ec11_read_ab();
-    s_ec11_sample  = s_ec11_last_ab;
-    s_ec11_count   = EC11_DEBOUNCE_CNT;  /* 初始状态直接视为已消抖确认 */
 }
 
 /*
@@ -331,9 +204,7 @@ void KEY_Init(void)
  * ============================================================
  *
  * KEY_Scan 由 StartKeyScan 任务每 10ms 调用一次。
- * 它完成两件事:
- *   1. 按键消抖状态机
- *   2. EC11 查表解码
+ * 完成按键消抖状态机。
  *
  * 按键消抖部分伪代码:
  *
@@ -375,24 +246,6 @@ void KEY_Init(void)
  *      在确认稳定后, 可以让 count 保持 KEY_SAMPLE_CNT。
  *      这样下次变化时 (level != stable),
  *      count=0 重新计数, 状态机正常工作。
- *
- * EC11 部分伪代码:
- *
- *   uint8_t ab = ec11_read_ab();
- *   if (ab != s_ec11_last_ab) {
- *       uint8_t idx = (s_ec11_last_ab << 2) | ab;
- *       s_ec11_delta += ec11_table[idx];
- *       s_ec11_last_ab = ab;
- *   }
- *
- *   为什么需要 if (ab != last_ab)?
- *      如果 EC11 没动, 每次采样都相同, 查表得到 0。
- *      跳过查表可以提高效率 (虽然差别很小)。
- *
- *   为什么 s_ec11_delta 会累积?
- *      用户可能在一次查询周期内旋转多格。
- *      EC11_GetDelta() 读取时返回累计值并清零。
- *      这样就不会丢失步数。
  */
 void KEY_Scan(void)
 {
@@ -421,24 +274,7 @@ void KEY_Scan(void)
         }
     }
 
-    /* === EC11 查表解码 (带消抖) === */
-    uint8_t ab = ec11_read_ab();
-    if (ab != s_ec11_sample) {
-        /* 新采样值与当前候选值不同 → 可能是抖动或刚进入新状态 */
-        s_ec11_sample = ab;
-        s_ec11_count = 0;
-    } else {
-        /* 与候选值一致 → 递增消抖计数 */
-        if (s_ec11_count < EC11_DEBOUNCE_CNT) {
-            s_ec11_count++;
-        }
-        /* 消抖确认后, 检查是否与上次稳定状态不同 */
-        if (s_ec11_count >= EC11_DEBOUNCE_CNT && ab != s_ec11_last_ab) {
-            uint8_t idx = (uint8_t)((s_ec11_last_ab << 2) | ab);
-            s_ec11_delta += ec11_table[idx];
-            s_ec11_last_ab = ab;
-        }
-    }
+    /* === 注意: EC11 已移除, 纯按键驱动 === */
 }
 
 /*
@@ -481,44 +317,7 @@ KeyID_t KEY_GetPressed(void)
 
 /*
  * ============================================================
- *  学习笔记: EC11_GetDelta — 累计步数读取
- * ============================================================
- *
- * 和 KEY_GetPressed 类似, 使用读后清零模式。
- *
- * 返回值: int8_t (-128 ~ +127)
- *   - 正数: 顺时针转了多少格
- *   - 负数: 逆时针转了多少格
- *   - 0: 没有转动
- *
- * 为什么使用 int8_t 而不是 int16_t?
- *   EC11 在两次数值读取之间 (200ms LCD 更新周期),
- *   能旋转的格数有限 (人手动旋转, 最多每秒几转)。
- *   即使每秒 10 转, 20 格/转 (典型 EC11),
- *   200ms 内也只有 40 格, 在 int8_t 范围内。
- *   如果担心溢出, 可以改用 int16_t。
- *
- * 使用示例 (在 lcd_page.c 中):
- *
- *   int8_t delta = EC11_GetDelta();
- *   if (delta > 0) {
- *       // 顺时针 → 切换到下一页
- *       current_page = (current_page + 1) % PAGE_COUNT;
- *   } else if (delta < 0) {
- *       // 逆时针 → 切换到上一页
- *       current_page = (current_page - 1 + PAGE_COUNT) % PAGE_COUNT;
- *   }
- */
-int8_t EC11_GetDelta(void)
-{
-    int8_t d = s_ec11_delta;
-    s_ec11_delta = 0;
-    return d;
-}
-
-/*
- * ============================================================
- *  总结: KEy + EC11 数据流
+ *  总结: 按键数据流
  * ============================================================
  *
  *    ┌──────────────────────────────────────────────────┐
@@ -533,8 +332,7 @@ int8_t EC11_GetDelta(void)
  *    │  1. 调用 KEY_Scan()                              │
  *    │     ├── key_read_raw(0) → 消抖状态机 → s_pressed │
  *    │     ├── key_read_raw(1) → 消抖状态机 → s_pressed │
- *    │     ├── key_read_raw(2) → 消抖状态机 → s_pressed │
- *    │     └── ec11_read_ab() → 查表 → s_ec11_delta    │
+ *    │     └── key_read_raw(2) → 消抖状态机 → s_pressed │
  *    │                                                  │
  *    │  2. osDelay(10) 等待下一周期                     │
  *    └──────────────────────┬───────────────────────────┘
@@ -548,8 +346,6 @@ int8_t EC11_GetDelta(void)
  *    │读取按键:   │  │读取按键:  │  │ (不使用按键) │
  *    │GetPressed()│  │GetPressed│  │             │
  *    │→ 切换页面  │  │→ 发指令  │  │             │
- *    │EC11_GetDelt│  │          │  │             │
- *    │→ 翻页/调参 │  │          │  │             │
  *    └────────────┘  └──────────┘  └─────────────┘
  *
  * 注意: KEY_GetPressed 使用读后清, 所以多个任务同时
