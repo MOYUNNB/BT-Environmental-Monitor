@@ -19,6 +19,7 @@
 10. [LCD 背光控制与上电时序优化](#10-lcd-背光控制与上电时序优化)
 11. [从 CubeMX 骨架到完整系统](#11-从-cubemx-骨架到完整系统)
 12. [按键消抖状态机重写 — 页面自己跳的根因](#12-按键消抖状态机重写--页面自己跳的根因)
+13. [LCD SPI 行缓冲优化 — IMU 柱状图不实时](#13-lcd-spi-行缓冲优化--imu-柱状图不实时)
 
 ---
 
@@ -687,6 +688,114 @@ void Backlight_Off(void) { Backlight_Set(0); }
 - 强调**发现问题 → 定位根因 → 修复**的完整闭环，而不是"我写了什么代码"
 - 重点突出 WS2812 三层嵌套 bug，展示调试能力
 - 展示架构思维：接口模式设计、优先级调度、互斥锁粒度控制
+
+---
+
+## 13. LCD SPI 行缓冲优化 — IMU 柱状图不实时
+
+### S — Situation
+
+页面二（IMU 图表页）显示 ICM42688 加速度和陀螺仪的柱状图。用户反馈"柱状图和数据不灵敏，反应时间有点长"——拿着板子晃，柱子跟不上运动。
+
+此前已做过多轮优化：LCD 任务去掉冗余 `osDelay`（200ms 空等 → 数据到达即刷新）、ICM42688 合并为一次 SPI 读。但效果仍不够，数据看起来还是"慢半拍"。
+
+### T — Task
+
+找出让页面二刷新慢的根因，不是"任务调度频率"而是"SPI 传输效率"。
+
+### A — Action
+
+**第一步：审计 SPI 事务量，定位 DrawString 为瓶颈**
+
+用分析工具统计 `page_imu_draw()` 一次全屏重绘的 SPI 事务数：
+
+| 操作 | SPI 事务数 | 占比 |
+|------|-----------|------|
+| 文字绘制（17 个 DrawString 调用） | 29,400 次 CS 翻转 | 99.6% |
+| 大块 FillRect（柱状区/状态栏） | 122 次 | 0.4% |
+| **总计** | **29,522 次 CS 翻转** | 100% |
+
+根源在 `LCD_DrawString` 的实现：
+
+```c
+// 原实现: 每个字符逐像素调用 LCD_FillRect
+for (col = 0; col < 5; col++) {
+    for (row = 0; row < 7; row++) {
+        LCD_FillRect(cur_x + col*scale, y + row*scale,
+                     cur_x + col*scale + scale-1,
+                     y + row*scale + scale-1, pixel_color);
+    }
+}
+```
+
+- 每个字符 5 列 × 7 行 = 35 次 `LCD_FillRect`
+- 每个 `LCD_FillRect` 执行一次窗口设置（CASET+RASET+RAMWR，5 次 CS 翻转）
+- scale=2 时 9 字符字符串 "X: +12.34" = **1575 次 SPI 事务**
+- 整个页面 17 个字符串 = **29,400 次 SPI 事务，占全页刷新 99.6%**
+
+每个 `LCD_FillRect` 即使只画 2×2=4 个像素，也要过一遍完整的 CASET(4B) + RASET(4B) + RAMWR + data(8B) 流程，窗口设置的 SPI 开销远大于数据本身。
+
+**第二步：重写 `lcd_set_window` — CS 一次低电平完成所有命令**
+
+原实现 5 次 CS 选通/释放，每次调用 `HAL_SPI_Transmit` 有 ~3μs 固定开销。改为一次 CS 低电平：
+
+```c
+cs_sel();
+    dc_cmd(); HAL_SPI_Transmit(&hspi1, &cmd_2A, 1, HAL_MAX_DELAY);
+    dc_dat(); HAL_SPI_Transmit(&hspi1, seq_x, 4, HAL_MAX_DELAY);
+    dc_cmd(); HAL_SPI_Transmit(&hspi1, &cmd_2B, 1, HAL_MAX_DELAY);
+    dc_dat(); HAL_SPI_Transmit(&hspi1, seq_y, 4, HAL_MAX_DELAY);
+    dc_cmd(); HAL_SPI_Transmit(&hspi1, &cmd_2C, 1, HAL_MAX_DELAY);
+cs_des();
+```
+
+5 次 CS 翻转 → 1 次。`LCD_FillRect` 和 `LCD_DrawProgressBar` 也受益于此。
+
+**第三步：重写 `LCD_DrawString` — 行缓冲批量 SPI 写入**
+
+核心思路：**设一次窗口覆盖整个字符串，将像素按行缓冲后批量发送**。
+
+```c
+lcd_set_window(x, y, x + total_w - 1, y + total_h - 1);  // 一次窗口
+
+for (row = 0; row < 7; row++) {
+    while (*cp) {
+        glyph = font[c - 0x20];
+        for (col = 0; col < 5; col++) {
+            pixel = (glyph[col] & (1 << row)) ? fg : bg;
+            for (sc = 0; sc < scale; sc++)
+                buf[idx++] = pixel_HI, buf[idx++] = pixel_LO;  // 水平缩放
+        }
+        for (sc = 0; sc < scale; sc++)
+            buf[idx++] = bg_HI, buf[idx++] = bg_LO;  // 间距
+    }
+    for (sr = 0; sr < scale; sr++)
+        lcd_write_datas(buf, idx);  // 一次 SPI 批量写
+}
+```
+
+**第四步：页面一二增量刷新**
+
+`page_data_update` 和 `page_imu_update` 改用只更新变动区域（数值+柱状图+状态栏），静态元素（标题、标签、分隔线）翻页时画一次，同页循环不动。
+
+### R — Result
+
+| 指标 | 优化前 | 优化后 |
+|------|--------|--------|
+| CS 翻转次数（页面二一次增量更新） | 29,522 次 | ~140 次 |
+| 预计 SPI 传输时间 | ~138 ms | ~5 ms |
+| 数据落地延迟 | ~400 ms | ~100 ms（传感器周期限制） |
+
+**经验教训：**
+1. **性能问题不一定在"调度"上**——表面看是页面响应慢，第一反应是"提高任务优先级、缩短周期"，但实际瓶颈藏在 `LCD_DrawString` 的 SPI 事务量上
+2. **`LCD_FillRect` 是昂贵的操作**——设一次窗口做 5 次 SPI 事务，只画 2 字节数据。批量操作效率比逐像素高几个数量级
+3. **99% 的瓶颈通常藏在 1% 的代码里**——`LCD_DrawString` 只占代码量的 3%，却占了 99.6% 的 SPI 事务
+
+**面试追问准备：**
+- **为什么第一个优化没生效（去 osDelay + ICM42688 合并读）？** 方向错了——去 osDelay 解决"调度延迟"，但 SPI 传输本身耗时 138ms 才是瓶颈
+- **为什么之前没发现 DrawString 的问题？** 它能"正常工作"——字能显示，肉眼看不出每帧画了 3 万次 SPI 事务。只有数了 SPI 事务量才发现
+- **行缓冲会不会栈溢出？** 1KB 缓冲，LCD 任务栈 8KB，完全安全
+- **这个优化影响其他页面吗？** 所有页面受益，因为 `LCD_DrawString` 是共享函数
 
 ---
 
