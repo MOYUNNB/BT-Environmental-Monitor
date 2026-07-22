@@ -116,7 +116,7 @@ static void page_data_draw(const SensorData_t *data)
     /* ── IMU 简明 (ICM42688) ── */
     y = 194;
     LCD_DrawString(4, y, "ACCEL", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
-    LCD_DrawString(120, y, "GYRO", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
+    LCD_DrawString(120, y, "ANGLE", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
     draw_sensor_led(48, y + 3, !!(data->sensors_ok & SENSOR_OK_ICM42688));
 
     y = 208;
@@ -128,11 +128,11 @@ static void page_data_draw(const SensorData_t *data)
     LCD_DrawString(116, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
 
     y = 224;
-    snprintf(buf, sizeof(buf), "X:%.1f    ", (double)data->imu.gyro_x);
+    snprintf(buf, sizeof(buf), "X:%.2f    ", (double)data->imu.angle_x);
     LCD_DrawString(120, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "Y:%.1f    ", (double)data->imu.gyro_y);
+    snprintf(buf, sizeof(buf), "Y:%.2f    ", (double)data->imu.angle_y);
     LCD_DrawString(176, y, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "Z:%.1f    ", (double)data->imu.gyro_z);
+    snprintf(buf, sizeof(buf), "Z:%.2f    ", (double)data->imu.angle_z);
     LCD_DrawString(120, y + 14, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
 
     /* ── 底部空白区: 温度柱状图 (先清理最大区域, 防止缩小后残留) ── */
@@ -220,15 +220,15 @@ static void page_data_update(const SensorData_t *data)
     }
     {
         LCD_FillRect(120, 224, 240, 236, LCD_COLOR_BLACK);
-        snprintf(buf, sizeof(buf), "X:%.1f    ", (double)data->imu.gyro_x);
+        snprintf(buf, sizeof(buf), "X:%.2f    ", (double)data->imu.angle_x);
         LCD_DrawString(120, 224, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
 
         LCD_FillRect(176, 224, 240, 236, LCD_COLOR_BLACK);
-        snprintf(buf, sizeof(buf), "Y:%.1f    ", (double)data->imu.gyro_y);
+        snprintf(buf, sizeof(buf), "Y:%.2f    ", (double)data->imu.angle_y);
         LCD_DrawString(176, 224, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
 
         LCD_FillRect(120, 238, 240, 250, LCD_COLOR_BLACK);
-        snprintf(buf, sizeof(buf), "Z:%.1f    ", (double)data->imu.gyro_z);
+        snprintf(buf, sizeof(buf), "Z:%.2f    ", (double)data->imu.angle_z);
         LCD_DrawString(120, 238, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
     }
 
@@ -305,26 +305,26 @@ static void page_imu_draw(const SensorData_t *data)
 
     draw_sep(128, LCD_COLOR_GRAY);
 
-    /* ── 陀螺仪 ── */
+    /* ── 角度 (互补滤波器, X/Y 融合加速度计, Z 纯积分) ── */
     y = 134;
-    LCD_DrawString(4, y, "Gyroscope (dps)", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
+    LCD_DrawString(4, y, "Angle (deg)", LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
 
     y = 148;
-    snprintf(buf, sizeof(buf), "X: %+.1f", (double)data->imu.gyro_x);
+    snprintf(buf, sizeof(buf), "X: %+.2f", (double)data->imu.angle_x);
     LCD_DrawString(4, y, buf, LCD_COLOR_YELLOW, LCD_COLOR_BLACK, 2);
-    snprintf(buf, sizeof(buf), "Y: %+.1f", (double)data->imu.gyro_y);
+    snprintf(buf, sizeof(buf), "Y: %+.2f", (double)data->imu.angle_y);
     LCD_DrawString(4, y + 22, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 2);
-    snprintf(buf, sizeof(buf), "Z: %+.1f", (double)data->imu.gyro_z);
+    snprintf(buf, sizeof(buf), "Z: %+.2f", (double)data->imu.angle_z);
     LCD_DrawString(4, y + 44, buf, LCD_COLOR_MAGENTA, LCD_COLOR_BLACK, 2);
 
-    /* ── 陀螺仪柱状图 (先清理整条柱状区域, 防止缩小后残留) ── */
+    /* ── 角度柱状图 (1px = 1°, ←55~+55 范围) ── */
     {
         uint16_t gy = y + 2;
         uint16_t gbase = gy + 60;
-        LCD_FillRect(160, 150, 235, 265, LCD_COLOR_BLACK);  /* 清理陀螺仪柱状区域 */
-        int16_t gx = (int16_t)(data->imu.gyro_x / 4.0f);
-        int16_t gy_v = (int16_t)(data->imu.gyro_y / 4.0f);
-        int16_t gz = (int16_t)(data->imu.gyro_z / 4.0f);
+        LCD_FillRect(160, 150, 235, 265, LCD_COLOR_BLACK);
+        int16_t gx = (int16_t)(data->imu.angle_x);
+        int16_t gy_v = (int16_t)(data->imu.angle_y);
+        int16_t gz = (int16_t)(data->imu.angle_z);
         if (gx > 55) { gx = 55; } else if (gx < -55) { gx = -55; }
         if (gy_v > 55) { gy_v = 55; } else if (gy_v < -55) { gy_v = -55; }
         if (gz > 55) { gz = 55; } else if (gz < -55) { gz = -55; }
@@ -400,28 +400,28 @@ static void page_imu_update(const SensorData_t *data)
         LCD_DrawString(212, bar_base + 4, "Z", LCD_COLOR_BLUE,  LCD_COLOR_BLACK, 1);
     }
 
-    /* ── 陀螺仪数值 (y=148, 170, 192) ── */
+    /* ── 角度数值 (y=148, 170, 192) ── */
     y = 148;
     LCD_FillRect(vx, y, vx + vw, y + 18, LCD_COLOR_BLACK);
-    snprintf(buf, sizeof(buf), "X: %+.1f", (double)data->imu.gyro_x);
+    snprintf(buf, sizeof(buf), "X: %+.2f", (double)data->imu.angle_x);
     LCD_DrawString(vx, y, buf, LCD_COLOR_YELLOW, LCD_COLOR_BLACK, 2);
 
     LCD_FillRect(vx, y + 22, vx + vw, y + 40, LCD_COLOR_BLACK);
-    snprintf(buf, sizeof(buf), "Y: %+.1f", (double)data->imu.gyro_y);
+    snprintf(buf, sizeof(buf), "Y: %+.2f", (double)data->imu.angle_y);
     LCD_DrawString(vx, y + 22, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 2);
 
     LCD_FillRect(vx, y + 44, vx + vw, y + 62, LCD_COLOR_BLACK);
-    snprintf(buf, sizeof(buf), "Z: %+.1f", (double)data->imu.gyro_z);
+    snprintf(buf, sizeof(buf), "Z: %+.2f", (double)data->imu.angle_z);
     LCD_DrawString(vx, y + 44, buf, LCD_COLOR_MAGENTA, LCD_COLOR_BLACK, 2);
 
-    /* ── 陀螺仪柱状图 (清理 + 重绘) ── */
+    /* ── 角度柱状图 (1px = 1°, ±55 范围) ── */
     {
-        float gx_f = data->imu.gyro_x, gy_f = data->imu.gyro_y, gz_f = data->imu.gyro_z;
+        float gx_f = data->imu.angle_x, gy_f = data->imu.angle_y, gz_f = data->imu.angle_z;
         uint16_t gbase = 210;   /* y(gy) + 2 + 60  */
         LCD_FillRect(160, 150, 235, 265, LCD_COLOR_BLACK);
-        int16_t gx = (int16_t)(gx_f / 4.0f);
-        int16_t gy_v = (int16_t)(gy_f / 4.0f);
-        int16_t gz = (int16_t)(gz_f / 4.0f);
+        int16_t gx = (int16_t)(gx_f);
+        int16_t gy_v = (int16_t)(gy_f);
+        int16_t gz = (int16_t)(gz_f);
         if (gx > 55) { gx = 55; } else if (gx < -55) { gx = -55; }
         if (gy_v > 55) { gy_v = 55; } else if (gy_v < -55) { gy_v = -55; }
         if (gz > 55) { gz = 55; } else if (gz < -55) { gz = -55; }

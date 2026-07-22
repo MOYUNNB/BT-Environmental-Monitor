@@ -38,6 +38,7 @@
 #include "tf_card.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -765,6 +766,32 @@ void StartSensorRead(void *argument)
   /* 首次运行: 初始化传感器 (此时内核已启动, 互斥锁可用) */
   sensor_init();
 
+  /* ── 陀螺仪零偏校准 (保持设备静止 1 秒) ── */
+  float gx_bias = 0.0f, gy_bias = 0.0f, gz_bias = 0.0f;
+  {
+      const int CALIB_SAMPLES = 100;
+      printf("[ICM42688] Gyro calibrating... keep still\r\n");
+      for (int i = 0; i < CALIB_SAMPLES; i++) {
+          float gx, gy, gz;
+          if (ICM42688_ReadGyro(&gx, &gy, &gz) == ICM42688_OK) {
+              gx_bias += gx;
+              gy_bias += gy;
+              gz_bias += gz;
+          }
+          osDelay(CFG_SENSOR_PERIOD_MS);
+      }
+      gx_bias /= (float)CALIB_SAMPLES;
+      gy_bias /= (float)CALIB_SAMPLES;
+      gz_bias /= (float)CALIB_SAMPLES;
+      printf("[ICM42688] Bias: X=%.1f Y=%.1f Z=%.1f dps\r\n",
+             (double)gx_bias, (double)gy_bias, (double)gz_bias);
+  }
+
+  /* ── 角度积分状态 ── */
+  float angle_x = 0.0f, angle_y = 0.0f, angle_z = 0.0f;
+  uint8_t angle_first = 1;             /* 首次采样从加速度计初始化倾角 */
+  const float DT = (float)CFG_SENSOR_PERIOD_MS / 1000.0f;  /* 0.1s */
+
   for(;;)
   {
     SensorData_t data = {0};
@@ -834,6 +861,42 @@ void StartSensorRead(void *argument)
                          &data.imu.gyro_x,  &data.imu.gyro_y,  &data.imu.gyro_z,
                          &data.imu.temp_c) == ICM42688_OK) {
       data.sensors_ok |= SENSOR_OK_ICM42688;
+
+      /* ── 角度积分: 互补滤波器 (陀螺仪+加速度计) ── */
+      {
+          /* 减去零偏后的角速度 */
+          float gx = data.imu.gyro_x - gx_bias;
+          float gy = data.imu.gyro_y - gy_bias;
+          float gz = data.imu.gyro_z - gz_bias;
+
+          /* 加速度计 → 绝对倾斜角度 (roll: 绕X, pitch: 绕Y) */
+          float ax = data.imu.accel_x;
+          float ay = data.imu.accel_y;
+          float az = data.imu.accel_z;
+
+          /* 避免除零 / 小角度数值爆炸 */
+          float a_sq = sqrtf(ay * ay + az * az);
+          float accel_roll  = atan2f(ay, az) * 57.29578f;         /* 绕 X 轴 */
+          float accel_pitch = atan2f(-ax, a_sq) * 57.29578f;      /* 绕 Y 轴 */
+
+          if (angle_first) {
+              angle_first = 0;
+              angle_x = accel_roll;    /* 首次: 从加速度计直接初始化 */
+              angle_y = accel_pitch;
+          } else {
+              /* 互补滤波器: 98% 陀螺仪积分 + 2% 加速度计绝对参考 */
+              angle_x = 0.98f * (angle_x + gx * DT) + 0.02f * accel_roll;
+              angle_y = 0.98f * (angle_y + gy * DT) + 0.02f * accel_pitch;
+          }
+
+          /* Z 轴 (偏航): 无绝对参考, 纯积分 (会缓慢漂移) */
+          angle_z += gz * DT;
+
+          /* 写入结构体 */
+          data.imu.angle_x = angle_x;
+          data.imu.angle_y = angle_y;
+          data.imu.angle_z = angle_z;
+      }
     }
 
     /* 5. 发布数据 (更新全局 + 推入队列) */
@@ -842,12 +905,14 @@ void StartSensorRead(void *argument)
     /* 调试: 每 10 次打印一次传感器值 */
     if (data.seq_num % 10 == 0) {
         printf("[SENSOR] #%lu T=%.1fC H=%.1f%% V=%.2fV I=%.3fA "
-               "Accel=%.2f,%.2f,%.2fg Gyro=%.1f,%.1f,%.1fdps OK=0x%02X\r\n",
+               "Accel=%.2f,%.2f,%.2fg Gyro=%.1f,%.1f,%.1fdps "
+               "Angle=%.2f,%.2f,%.2fdeg OK=0x%02X\r\n",
                (unsigned long)data.seq_num,
                (double)data.env.temperature, (double)data.env.humidity,
                (double)data.power.bus_voltage, (double)data.power.current,
                (double)data.imu.accel_x, (double)data.imu.accel_y, (double)data.imu.accel_z,
                (double)data.imu.gyro_x, (double)data.imu.gyro_y, (double)data.imu.gyro_z,
+               (double)data.imu.angle_x, (double)data.imu.angle_y, (double)data.imu.angle_z,
                (unsigned)data.sensors_ok);
     }
 
@@ -939,7 +1004,8 @@ void StartBluetooth(void *argument)
     BLUETOOTH_SendSensorData(data.env.temperature, data.env.humidity,
                              data.power.bus_voltage, data.power.current, data.power.power,
                              data.imu.accel_x, data.imu.accel_y, data.imu.accel_z,
-                             data.imu.gyro_x, data.imu.gyro_y, data.imu.gyro_z);
+                             data.imu.gyro_x, data.imu.gyro_y, data.imu.gyro_z,
+                             data.imu.angle_x, data.imu.angle_y, data.imu.angle_z);
 
     /* 2. 检查蓝牙命令 */
     while (BLUETOOTH_GetCmd(&cmd)) {

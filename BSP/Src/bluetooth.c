@@ -423,16 +423,19 @@ void BLUETOOTH_Send(const char *json_str)
 
 void BLUETOOTH_SendSensorData(float temp, float humi, float volt, float curr, float pwr,
                               float accel_x, float accel_y, float accel_z,
-                              float gyro_x, float gyro_y, float gyro_z)
+                              float gyro_x, float gyro_y, float gyro_z,
+                              float angle_x, float angle_y, float angle_z)
 {
-    char buf[256];
+    char buf[320];
     snprintf(buf, sizeof(buf),
         "{\"temp\":%.1f,\"humi\":%.1f,\"volt\":%.2f,\"curr\":%.3f,\"pwr\":%.2f,"
         "\"accel\":{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f},"
-        "\"gyro\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}}\r\n",
+        "\"gyro\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f},"
+        "\"angle\":{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}}\r\n",
         (double)temp, (double)humi, (double)volt, (double)curr, (double)pwr,
         (double)accel_x, (double)accel_y, (double)accel_z,
-        (double)gyro_x, (double)gyro_y, (double)gyro_z);
+        (double)gyro_x, (double)gyro_y, (double)gyro_z,
+        (double)angle_x, (double)angle_y, (double)angle_z);
     BLUETOOTH_Send(buf);
 }
 

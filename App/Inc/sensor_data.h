@@ -49,7 +49,8 @@ typedef struct {
 /* IMU 数据 (ICM42688) */
 typedef struct {
     float accel_x, accel_y, accel_z;  /* g */
-    float gyro_x,  gyro_y,  gyro_z;   /* °/s */
+    float gyro_x,  gyro_y,  gyro_z;   /* °/s — 原始角速度 */
+    float angle_x, angle_y, angle_z;  /* ° — 积分角度 (互补滤波器) */
     float temp_c;                      /* 芯片温度 */
 } IMUData_t;
 
