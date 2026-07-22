@@ -829,10 +829,10 @@ void StartSensorRead(void *argument)
       data.sensors_ok |= SENSOR_OK_INA226;
     }
 
-    /* 4. 读取 ICM42688 IMU */
-    if (ICM42688_ReadAccel(&data.imu.accel_x, &data.imu.accel_y, &data.imu.accel_z) == ICM42688_OK) {
-      ICM42688_ReadGyro(&data.imu.gyro_x, &data.imu.gyro_y, &data.imu.gyro_z);
-      ICM42688_ReadTemp(&data.imu.temp_c);
+    /* 4. 读取 ICM42688 IMU (一次 SPI 突发读, 保证数据同帧) */
+    if (ICM42688_ReadAll(&data.imu.accel_x, &data.imu.accel_y, &data.imu.accel_z,
+                         &data.imu.gyro_x,  &data.imu.gyro_y,  &data.imu.gyro_z,
+                         &data.imu.temp_c) == ICM42688_OK) {
       data.sensors_ok |= SENSOR_OK_ICM42688;
     }
 
@@ -870,12 +870,10 @@ void StartLCDUpdate(void *argument)
 
   for(;;)
   {
-    /* 从队列取最新传感器数据 (阻塞 200ms) */
-    if (osMessageQueueGet(xQueue_SensorDataHandle, &data, NULL, 200) == osOK) {
+    /* 从队列取最新传感器数据, 超时 = 刷新周期, 不再加额外 osDelay */
+    if (osMessageQueueGet(xQueue_SensorDataHandle, &data, NULL, CFG_LCD_PERIOD_MS) == osOK) {
       LCD_Page_Refresh(&data);
     }
-
-    osDelay(CFG_LCD_PERIOD_MS);
   }
   /* USER CODE END StartLCDUpdate */
 }

@@ -68,22 +68,25 @@ static void lcd_write_datas(const uint8_t *data, size_t len)
     cs_des();
 }
 
-/*========== 窗口设置 ==========*/
+/*========== 窗口设置 (CS 全程保持低, 减少 GPIO 翻转) ==========*/
 static void lcd_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
-    lcd_write_cmd(0x2A); /* CASET */
-    {
-        uint8_t seq[4] = { (uint8_t)(x0 >> 8), (uint8_t)(x0 & 0xFF),
-                           (uint8_t)(x1 >> 8), (uint8_t)(x1 & 0xFF) };
-        lcd_write_datas(seq, 4);
-    }
-    lcd_write_cmd(0x2B); /* RASET */
-    {
-        uint8_t seq[4] = { (uint8_t)(y0 >> 8), (uint8_t)(y0 & 0xFF),
-                           (uint8_t)(y1 >> 8), (uint8_t)(y1 & 0xFF) };
-        lcd_write_datas(seq, 4);
-    }
-    lcd_write_cmd(0x2C); /* RAMWR */
+    cs_sel();
+
+    dc_cmd(); { uint8_t cmd = 0x2A; HAL_SPI_Transmit(&hspi1, &cmd, 1, HAL_MAX_DELAY); }
+    dc_dat(); { uint8_t seq[4] = { (uint8_t)(x0 >> 8), (uint8_t)(x0 & 0xFF),
+                                   (uint8_t)(x1 >> 8), (uint8_t)(x1 & 0xFF) };
+                 HAL_SPI_Transmit(&hspi1, seq, 4, HAL_MAX_DELAY); }
+
+    dc_cmd(); { uint8_t cmd = 0x2B; HAL_SPI_Transmit(&hspi1, &cmd, 1, HAL_MAX_DELAY); }
+    dc_dat(); { uint8_t seq[4] = { (uint8_t)(y0 >> 8), (uint8_t)(y0 & 0xFF),
+                                   (uint8_t)(y1 >> 8), (uint8_t)(y1 & 0xFF) };
+                 HAL_SPI_Transmit(&hspi1, seq, 4, HAL_MAX_DELAY); }
+
+    dc_cmd(); { uint8_t cmd = 0x2C; HAL_SPI_Transmit(&hspi1, &cmd, 1, HAL_MAX_DELAY); }
+    dc_dat();
+
+    cs_des();
 }
 
 /*========== 显示方向 ==========*/
@@ -349,27 +352,54 @@ static const uint8_t s_font5x7[95][5] = {
 void LCD_DrawString(uint16_t x, uint16_t y, const char *str,
                     uint16_t color, uint16_t bg, uint8_t scale)
 {
-    if (scale > 4) scale = 4;
-    if (scale == 0) scale = 1;
+    if (scale > 4 || scale == 0) scale = 1;
 
-    uint16_t cur_x = x;
-    while (*str) {
-        char c = *str++;
-        if (c < 0x20 || c > 0x7E) c = ' ';
-        const uint8_t *glyph = s_font5x7[c - 0x20];
+    size_t len = strlen(str);
+    if (len == 0) return;
 
-        for (uint8_t col = 0; col < 5; col++) {
-            uint8_t line = glyph[col];
-            for (uint8_t row = 0; row < 7; row++) {
-                uint16_t pixel_color = (line & (1U << row)) ? color : bg;
-                LCD_FillRect(cur_x + col * scale,
-                             y + row * scale,
-                             cur_x + col * scale + scale - 1,
-                             y + row * scale + scale - 1,
-                             pixel_color);
+    /* 每字符宽度 = 5 列字体 + 1 列间距, 乘缩放 */
+    uint16_t char_step = (5U + 1U) * (uint16_t)scale;
+    uint16_t total_w   = (uint16_t)(len * char_step);
+    uint16_t total_h   = 7U * (uint16_t)scale;
+
+    /* 一次窗口覆盖整个字符串 (替代原逐像素 FillRect 方式) */
+    lcd_set_window(x, y, x + total_w - 1U, y + total_h - 1U);
+
+    /* 行缓冲区: 每像素 2 字节, 足以容纳最长项目字符串 */
+    #define DS_BUF_SIZE 1024U
+    uint8_t buf[DS_BUF_SIZE];
+    uint16_t row_bytes = total_w * 2U;
+    if (row_bytes > DS_BUF_SIZE) row_bytes = DS_BUF_SIZE;
+
+    /* 逐字体行 (7 行) */
+    for (uint8_t row = 0; row < 7U; row++) {
+        /* 构建该行所有字符的像素数据 */
+        uint16_t idx = 0;
+        const char *cp = str;
+        while (*cp && idx + 2U <= row_bytes) {
+            char c = *cp++;
+            if (c < 0x20 || c > 0x7E) c = ' ';
+            const uint8_t *glyph = s_font5x7[c - 0x20];
+
+            /* 5 列字体, 水平缩放 */
+            for (uint8_t col = 0; col < 5U; col++) {
+                uint16_t pixel = (glyph[col] & (1U << row)) ? color : bg;
+                uint8_t hi = COLOR_HI(pixel);
+                uint8_t lo = COLOR_LO(pixel);
+                for (uint8_t sc = 0; sc < scale; sc++) {
+                    if (idx + 2U <= row_bytes) { buf[idx++] = hi; buf[idx++] = lo; }
+                }
+            }
+            /* 间距列 */
+            for (uint8_t sc = 0; sc < scale; sc++) {
+                if (idx + 2U <= row_bytes) { buf[idx++] = COLOR_HI(bg); buf[idx++] = COLOR_LO(bg); }
             }
         }
-        cur_x += (5 + 1) * scale;
+
+        /* 垂直缩放: 同一行像素发送 scale 次 */
+        for (uint8_t sr = 0; sr < scale; sr++) {
+            lcd_write_datas(buf, idx);
+        }
     }
 }
 

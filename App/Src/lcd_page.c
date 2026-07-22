@@ -149,7 +149,102 @@ static void page_data_draw(const SensorData_t *data)
 
 static void page_data_update(const SensorData_t *data)
 {
-    page_data_draw(data);
+    char buf[32];
+    const uint16_t vx = 4, vw = 160;     /* 数值区宽 160, 覆盖所有数值最大宽度 */
+
+    /* ── 时间 (行 24, 仅秒变化时刷新) ── */
+    {
+        static uint8_t s_last_sec = 0xFF;
+        if (data->timestamp.second != s_last_sec) {
+            s_last_sec = data->timestamp.second;
+            LCD_FillRect(vx, 24, vx + vw, 40, LCD_COLOR_BLACK);
+            snprintf(buf, sizeof(buf), "%04u-%02u-%02u %02u:%02u:%02u",
+                     (unsigned)data->timestamp.year, (unsigned)data->timestamp.month,
+                     (unsigned)data->timestamp.day,
+                     (unsigned)data->timestamp.hour, (unsigned)data->timestamp.minute,
+                     (unsigned)data->timestamp.second);
+            LCD_DrawString(vx, 24, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
+        }
+    }
+
+    /* ── 温湿度 (行 62) ── */
+    {
+        uint16_t tc = temp_color(data->env.temperature);
+        LCD_FillRect(vx, 62, vx + vw, 78, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "%.1f C ", (double)data->env.temperature);
+        LCD_DrawString(vx, 62, buf, tc, LCD_COLOR_BLACK, 2);
+
+        LCD_FillRect(100, 62, 240, 78, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "%.1f %%  ", (double)data->env.humidity);
+        LCD_DrawString(100, 62, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 2);
+    }
+
+    /* ── 温度进度条 (行 100) ── */
+    {
+        float pct = (data->env.temperature - 0.0f) / 50.0f * 100.0f;
+        if (pct < 0.0f) pct = 0.0f;
+        if (pct > 100.0f) pct = 100.0f;
+        uint16_t tc = temp_color(data->env.temperature);
+        LCD_DrawProgressBar(4, 100, LCD_WIDTH - 8, 8, (uint8_t)pct, tc, LCD_COLOR_GRAY);
+    }
+
+    /* ── 电源 (行 134, 156) ── */
+    {
+        LCD_FillRect(vx, 134, vx + vw, 150, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "%.2f V ", (double)data->power.bus_voltage);
+        LCD_DrawString(vx, 134, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
+
+        LCD_FillRect(120, 134, 240, 150, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "%.3f A  ", (double)data->power.current);
+        LCD_DrawString(120, 134, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 2);
+
+        LCD_FillRect(vx, 156, vx + vw, 174, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "%.2f W   ", (double)data->power.power);
+        LCD_DrawString(vx, 156, buf, LCD_COLOR_YELLOW, LCD_COLOR_BLACK, 3);
+    }
+
+    /* ── IMU 简明 (行 208, 224) ── */
+    {
+        LCD_FillRect(vx, 208, vx + vw, 220, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "X:%.1f ", (double)data->imu.accel_x);
+        LCD_DrawString(vx, 208, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+
+        LCD_FillRect(60, 208, 180, 220, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "Y:%.1f ", (double)data->imu.accel_y);
+        LCD_DrawString(60, 208, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+
+        LCD_FillRect(116, 208, 240, 220, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "Z:%.1f ", (double)data->imu.accel_z);
+        LCD_DrawString(116, 208, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+    }
+    {
+        LCD_FillRect(120, 224, 240, 236, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "X:%.1f    ", (double)data->imu.gyro_x);
+        LCD_DrawString(120, 224, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+
+        LCD_FillRect(176, 224, 240, 236, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "Y:%.1f    ", (double)data->imu.gyro_y);
+        LCD_DrawString(176, 224, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+
+        LCD_FillRect(120, 238, 240, 250, LCD_COLOR_BLACK);
+        snprintf(buf, sizeof(buf), "Z:%.1f    ", (double)data->imu.gyro_z);
+        LCD_DrawString(120, 238, buf, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+    }
+
+    /* ── 温度柱状图 (底部) ── */
+    {
+        float t = data->env.temperature;
+        uint16_t tc = temp_color(t);
+        LCD_FillRect(4, 242, 20, 291, LCD_COLOR_BLACK);
+        int16_t bar_h = (int16_t)(t * 4.0f);
+        if (bar_h > 50) bar_h = 50;
+        if (bar_h < 0) bar_h = 0;
+        LCD_FillRect(4, 292 - (uint16_t)bar_h, 16, 291, tc);
+        LCD_DrawString(24, 275, "T", LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+    }
+
+    /* ── 状态栏 ── */
+    draw_status_bar(data);
 }
 
 /*=================================================================
@@ -258,7 +353,98 @@ static void page_imu_draw(const SensorData_t *data)
 
 static void page_imu_update(const SensorData_t *data)
 {
-    page_imu_draw(data);
+    char buf[32];
+
+    /* ── 只更新数值和柱状图, 静态元素 (标题/标签/分隔线) 保持不变 ── */
+
+    const uint16_t vx = 4, vw = 140;       /* 数值区: x=4, 宽 140 保证清掉旧值 */
+    uint16_t y;
+
+    /* 加速度数值 (y=40, 62, 84) */
+    y = 40;
+    LCD_FillRect(vx, y, vx + vw, y + 18, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "X: %+.2f", (double)data->imu.accel_x);
+    LCD_DrawString(vx, y, buf, LCD_COLOR_RED, LCD_COLOR_BLACK, 2);
+
+    LCD_FillRect(vx, y + 22, vx + vw, y + 40, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "Y: %+.2f", (double)data->imu.accel_y);
+    LCD_DrawString(vx, y + 22, buf, LCD_COLOR_GREEN, LCD_COLOR_BLACK, 2);
+
+    LCD_FillRect(vx, y + 44, vx + vw, y + 62, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "Z: %+.2f", (double)data->imu.accel_z);
+    LCD_DrawString(vx, y + 44, buf, LCD_COLOR_BLUE, LCD_COLOR_BLACK, 2);
+
+    /* ── 加速度柱状图 (清理 + 重绘) ── */
+    {
+        float ax = data->imu.accel_x, ay = data->imu.accel_y, az = data->imu.accel_z;
+        uint16_t bar_base = 102;    /* y + 2 + 60 */
+        LCD_FillRect(160, 42, 235, 127, LCD_COLOR_BLACK);
+        int16_t bx = (int16_t)(ax * 30.0f);
+        int16_t by_ = (int16_t)(ay * 30.0f);
+        int16_t bz = (int16_t)(az * 30.0f);
+        if (bx > 55) { bx = 55; } else if (bx < -55) { bx = -55; }
+        if (by_ > 55) { by_ = 55; } else if (by_ < -55) { by_ = -55; }
+        if (bz > 55) { bz = 55; } else if (bz < -55) { bz = -55; }
+
+        LCD_FillRect(160, bar_base, 235, bar_base + 1, LCD_COLOR_GRAY);
+        if (bx >= 0) LCD_FillRect(172, bar_base - (uint16_t)bx, 188, bar_base - 1, LCD_COLOR_RED);
+        else         LCD_FillRect(172, bar_base, 188, bar_base + (uint16_t)(-bx) - 1, LCD_COLOR_RED);
+        if (by_ >= 0) LCD_FillRect(192, bar_base - (uint16_t)by_, 208, bar_base - 1, LCD_COLOR_GREEN);
+        else          LCD_FillRect(192, bar_base, 208, bar_base + (uint16_t)(-by_) - 1, LCD_COLOR_GREEN);
+        if (bz >= 0) LCD_FillRect(212, bar_base - (uint16_t)bz, 228, bar_base - 1, LCD_COLOR_BLUE);
+        else         LCD_FillRect(212, bar_base, 228, bar_base + (uint16_t)(-bz) - 1, LCD_COLOR_BLUE);
+
+        LCD_DrawString(172, bar_base + 4, "X", LCD_COLOR_RED,   LCD_COLOR_BLACK, 1);
+        LCD_DrawString(192, bar_base + 4, "Y", LCD_COLOR_GREEN, LCD_COLOR_BLACK, 1);
+        LCD_DrawString(212, bar_base + 4, "Z", LCD_COLOR_BLUE,  LCD_COLOR_BLACK, 1);
+    }
+
+    /* ── 陀螺仪数值 (y=148, 170, 192) ── */
+    y = 148;
+    LCD_FillRect(vx, y, vx + vw, y + 18, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "X: %+.1f", (double)data->imu.gyro_x);
+    LCD_DrawString(vx, y, buf, LCD_COLOR_YELLOW, LCD_COLOR_BLACK, 2);
+
+    LCD_FillRect(vx, y + 22, vx + vw, y + 40, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "Y: %+.1f", (double)data->imu.gyro_y);
+    LCD_DrawString(vx, y + 22, buf, LCD_COLOR_CYAN, LCD_COLOR_BLACK, 2);
+
+    LCD_FillRect(vx, y + 44, vx + vw, y + 62, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "Z: %+.1f", (double)data->imu.gyro_z);
+    LCD_DrawString(vx, y + 44, buf, LCD_COLOR_MAGENTA, LCD_COLOR_BLACK, 2);
+
+    /* ── 陀螺仪柱状图 (清理 + 重绘) ── */
+    {
+        float gx_f = data->imu.gyro_x, gy_f = data->imu.gyro_y, gz_f = data->imu.gyro_z;
+        uint16_t gbase = 210;   /* y(gy) + 2 + 60  */
+        LCD_FillRect(160, 150, 235, 265, LCD_COLOR_BLACK);
+        int16_t gx = (int16_t)(gx_f / 4.0f);
+        int16_t gy_v = (int16_t)(gy_f / 4.0f);
+        int16_t gz = (int16_t)(gz_f / 4.0f);
+        if (gx > 55) { gx = 55; } else if (gx < -55) { gx = -55; }
+        if (gy_v > 55) { gy_v = 55; } else if (gy_v < -55) { gy_v = -55; }
+        if (gz > 55) { gz = 55; } else if (gz < -55) { gz = -55; }
+
+        LCD_FillRect(160, gbase, 235, gbase + 1, LCD_COLOR_GRAY);
+        if (gx >= 0) LCD_FillRect(172, gbase - (uint16_t)gx, 188, gbase - 1, LCD_COLOR_YELLOW);
+        else         LCD_FillRect(172, gbase, 188, gbase + (uint16_t)(-gx) - 1, LCD_COLOR_YELLOW);
+        if (gy_v >= 0) LCD_FillRect(192, gbase - (uint16_t)gy_v, 208, gbase - 1, LCD_COLOR_CYAN);
+        else           LCD_FillRect(192, gbase, 208, gbase + (uint16_t)(-gy_v) - 1, LCD_COLOR_CYAN);
+        if (gz >= 0) LCD_FillRect(212, gbase - (uint16_t)gz, 228, gbase - 1, LCD_COLOR_MAGENTA);
+        else         LCD_FillRect(212, gbase, 228, gbase + (uint16_t)(-gz) - 1, LCD_COLOR_MAGENTA);
+
+        LCD_DrawString(172, gbase + 4, "X", LCD_COLOR_YELLOW,  LCD_COLOR_BLACK, 1);
+        LCD_DrawString(192, gbase + 4, "Y", LCD_COLOR_CYAN,    LCD_COLOR_BLACK, 1);
+        LCD_DrawString(212, gbase + 4, "Z", LCD_COLOR_MAGENTA, LCD_COLOR_BLACK, 1);
+    }
+
+    /* ── IMU 温度 ── */
+    LCD_FillRect(4, 256, 155, 272, LCD_COLOR_BLACK);
+    snprintf(buf, sizeof(buf), "IMU Die: %.1f C", (double)data->imu.temp_c);
+    LCD_DrawString(4, 256, buf, LCD_COLOR_GRAY, LCD_COLOR_BLACK, 1);
+
+    /* ── 状态栏 (seq 变化) ── */
+    draw_status_bar(data);
 }
 
 /*=================================================================

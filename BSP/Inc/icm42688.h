@@ -73,6 +73,16 @@ ICM42688_Status_t ICM42688_ReadAccel(float *x, float *y, float *z);
 ICM42688_Status_t ICM42688_ReadGyro(float *x, float *y, float *z);
 ICM42688_Status_t ICM42688_ReadTemp(float *temp_c);
 
+/**
+ * @brief  合并读取: 一次 SPI 突发读 14 字节 (温度 + 加速度 + 陀螺仪)
+ * @note   比分别调用 ReadAccel+ReadGyro+ReadTemp 少 2 次 SPI 事务,
+ *         且保证加速度/陀螺仪/温度数据来自同一采样时刻。
+ *         任一参数可为 NULL (不关心该项则跳过解析)。
+ */
+ICM42688_Status_t ICM42688_ReadAll(float *accel_x, float *accel_y, float *accel_z,
+                                   float *gyro_x,  float *gyro_y,  float *gyro_z,
+                                   float *temp_c);
+
 #ifdef __cplusplus
 }
 #endif

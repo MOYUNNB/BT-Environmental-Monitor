@@ -429,10 +429,9 @@ void BLUETOOTH_Init(UART_HandleTypeDef *huart)
     HAL_Delay(500);                                    /* 等待模块启动 */
     HAL_UART_Transmit(s_huart, (uint8_t *)"AT\r\n", 4, 100);
     HAL_Delay(100);
-    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+NAME=SensorMonitor\r\n", 23, 200);
+    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+NAMESensorMonitor\r\n", 22, 200);  /* HC-06: 无 = 号 */
     HAL_Delay(100);
-    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+BAUD=8\r\n", 11, 200);  /* 8=9600bps, 保持默认 */
-    HAL_Delay(100);
+    /* HC-06 默认 9600bps, 无需改波特率; 如需改: AT+BAUD4(9600) */
 }
 
 void BLUETOOTH_Send(const char *json_str)

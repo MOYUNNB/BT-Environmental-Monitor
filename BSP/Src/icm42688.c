@@ -531,6 +531,71 @@ ICM42688_Status_t ICM42688_ReadTemp(float *temp_c)
 
 /*
  * ============================================================
+ *  ICM42688_ReadAll — 一次 SPI 突发读 14 字节
+ * ============================================================
+ *
+ * 一次读取 14 字节 (0x1D~0x2A):
+ *   偏移 0-1:  TEMP_DATA      (int16_t, Big Endian)
+ *   偏移 2-3:  ACCEL_DATA_X
+ *   偏移 4-5:  ACCEL_DATA_Y
+ *   偏移 6-7:  ACCEL_DATA_Z
+ *   偏移 8-9:  GYRO_DATA_X
+ *   偏移 10-11: GYRO_DATA_Y
+ *   偏移 12-13: GYRO_DATA_Z
+ *
+ * 比分别调用 ReadAccel + ReadGyro + ReadTemp 节省 2 次 SPI 事务,
+ * 且确保三组数据来自同一采样时刻。
+ */
+ICM42688_Status_t ICM42688_ReadAll(float *accel_x, float *accel_y, float *accel_z,
+                                   float *gyro_x,  float *gyro_y,  float *gyro_z,
+                                   float *temp_c)
+{
+    uint8_t buf[14];
+
+    spi_lock();
+    ICM42688_Status_t ret = icm42688_read_regs(0x1D, buf, 14);
+    spi_unlock();
+    if (ret != ICM42688_OK) return ret;
+
+    /* 温度: buf[0..1] */
+    if (temp_c != NULL) {
+        int16_t raw_t = (int16_t)((uint16_t)(buf[0]) << 8U | buf[1]);
+        *temp_c = (float)raw_t / 132.48f + 25.0f;
+    }
+
+    /* 加速度: buf[2..7] */
+    if (accel_x != NULL) {
+        int16_t raw = (int16_t)((uint16_t)(buf[2]) << 8U | buf[3]);
+        *accel_x = (float)raw / s_accel_lsb;
+    }
+    if (accel_y != NULL) {
+        int16_t raw = (int16_t)((uint16_t)(buf[4]) << 8U | buf[5]);
+        *accel_y = (float)raw / s_accel_lsb;
+    }
+    if (accel_z != NULL) {
+        int16_t raw = (int16_t)((uint16_t)(buf[6]) << 8U | buf[7]);
+        *accel_z = (float)raw / s_accel_lsb;
+    }
+
+    /* 陀螺仪: buf[8..13] */
+    if (gyro_x != NULL) {
+        int16_t raw = (int16_t)((uint16_t)(buf[8])  << 8U | buf[9]);
+        *gyro_x = (float)raw / s_gyro_lsb;
+    }
+    if (gyro_y != NULL) {
+        int16_t raw = (int16_t)((uint16_t)(buf[10]) << 8U | buf[11]);
+        *gyro_y = (float)raw / s_gyro_lsb;
+    }
+    if (gyro_z != NULL) {
+        int16_t raw = (int16_t)((uint16_t)(buf[12]) << 8U | buf[13]);
+        *gyro_z = (float)raw / s_gyro_lsb;
+    }
+
+    return ICM42688_OK;
+}
+
+/*
+ * ============================================================
  *  总结: IMU 数据流
  * ============================================================
  *
