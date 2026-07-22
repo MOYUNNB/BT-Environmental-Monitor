@@ -9,16 +9,17 @@
 #include <stdio.h>
 #include <string.h>
 
-PageID_t g_current_page = PAGE_DATA;
+volatile PageID_t g_current_page = PAGE_DATA;
 static PageID_t s_last_page = PAGE_DATA;
+static uint8_t  s_data_last_sec = 0xFF;   /* 数据页时间防重刷 */
 
 /* ---- 辅助: 温度颜色 ---- */
 static uint16_t temp_color(float t)
 {
-    if (t < 10.0f) return LCD_COLOR_BLUE;
-    if (t < 20.0f) return LCD_COLOR_CYAN;
-    if (t < 30.0f) return LCD_COLOR_GREEN;
-    if (t < 40.0f) return LCD_COLOR_YELLOW;
+    if (t < CFG_TEMP_COLD)  return LCD_COLOR_BLUE;
+    if (t < CFG_TEMP_COOL)  return LCD_COLOR_CYAN;
+    if (t < CFG_TEMP_WARM)  return LCD_COLOR_GREEN;
+    if (t < CFG_TEMP_HOT)   return LCD_COLOR_YELLOW;
     return LCD_COLOR_RED;
 }
 
@@ -60,6 +61,7 @@ static void page_data_draw(const SensorData_t *data)
 
     /* ── RTC 时间 ── */
     y = 24;
+    s_data_last_sec = 0xFF;  /* 强制 page_data_update 下次更新时重绘时间 */
     snprintf(buf, sizeof(buf), "%04u-%02u-%02u %02u:%02u:%02u",
              (unsigned)data->timestamp.year, (unsigned)data->timestamp.month,
              (unsigned)data->timestamp.day,
@@ -154,9 +156,8 @@ static void page_data_update(const SensorData_t *data)
 
     /* ── 时间 (行 24, 仅秒变化时刷新) ── */
     {
-        static uint8_t s_last_sec = 0xFF;
-        if (data->timestamp.second != s_last_sec) {
-            s_last_sec = data->timestamp.second;
+        if (data->timestamp.second != s_data_last_sec) {
+            s_data_last_sec = data->timestamp.second;
             LCD_FillRect(vx, 24, vx + vw, 40, LCD_COLOR_BLACK);
             snprintf(buf, sizeof(buf), "%04u-%02u-%02u %02u:%02u:%02u",
                      (unsigned)data->timestamp.year, (unsigned)data->timestamp.month,
@@ -547,7 +548,7 @@ void LCD_Page_Refresh(const SensorData_t *data)
 {
     if (data == NULL) return;
 
-    PageID_t page = g_current_page;             /* 快照: 锁定当前页号 */
+    PageID_t page = *(volatile PageID_t *)&g_current_page;  /* 快照: 锁定当前页号 */
 
     if (page != s_last_page) {                  /* 页号变了 → 全屏重绘 */
         s_last_page = page;

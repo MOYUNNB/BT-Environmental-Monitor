@@ -59,12 +59,12 @@ static void lcd_write_data8(uint8_t data)
 }
 
 /* 连续 N 字节数据 (CS 全程保持低电平) */
-static void lcd_write_datas(const uint8_t *data, size_t len)
+static void lcd_write_datas(uint8_t *data, size_t len)
 {
     if (len == 0U) return;
     cs_sel();
     dc_dat();
-    HAL_SPI_Transmit(&hspi1, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(&hspi1, data, (uint16_t)len, HAL_MAX_DELAY);
     cs_des();
 }
 
@@ -250,6 +250,9 @@ void LCD_Init(void)
 
 /*========== 字符串绘制 ==========*/
 
+/* 行缓冲区大小 (LCD_DrawString 用): 足够容纳最长字符串一行像素 (RGB565) */
+#define DS_BUF_SIZE 1024U
+
 /* 5x7 ASCII 字库 (0x20~0x7E, 95 字符) */
 static const uint8_t s_font5x7[95][5] = {
     {0x00,0x00,0x00,0x00,0x00}, /* ' ' */
@@ -365,8 +368,6 @@ void LCD_DrawString(uint16_t x, uint16_t y, const char *str,
     /* 一次窗口覆盖整个字符串 (替代原逐像素 FillRect 方式) */
     lcd_set_window(x, y, x + total_w - 1U, y + total_h - 1U);
 
-    /* 行缓冲区: 每像素 2 字节, 足以容纳最长项目字符串 */
-    #define DS_BUF_SIZE 1024U
     uint8_t buf[DS_BUF_SIZE];
     uint16_t row_bytes = total_w * 2U;
     if (row_bytes > DS_BUF_SIZE) row_bytes = DS_BUF_SIZE;

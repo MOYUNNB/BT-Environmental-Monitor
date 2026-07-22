@@ -1036,15 +1036,15 @@ void StartWS2812(void *argument)
     SensorData_Read(&data);
     float t = data.env.temperature;
 
-    /* 温度映射颜色: 蓝→青→绿→黄→红 */
+    /* 温度映射颜色: 蓝→青→绿→黄→红 (阈值来自 app_conf.h) */
     uint8_t r = 0, g = 0, b = 0;
-    if (t < 10.0f) {
+    if (t < CFG_TEMP_COLD) {
       r = 0;   g = 0;   b = 255;  /* 蓝色 (冷) */
-    } else if (t < 20.0f) {
+    } else if (t < CFG_TEMP_COOL) {
       r = 0;   g = 255; b = 255;  /* 青色 */
-    } else if (t < 30.0f) {
+    } else if (t < CFG_TEMP_WARM) {
       r = 0;   g = 255; b = 0;    /* 绿色 (舒适) */
-    } else if (t < 40.0f) {
+    } else if (t < CFG_TEMP_HOT) {
       r = 255; g = 255; b = 0;    /* 黄色 */
     } else {
       r = 255; g = 0;   b = 0;    /* 红色 (热) */

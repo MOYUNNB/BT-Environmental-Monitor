@@ -207,41 +207,33 @@ INA226_Status_t INA226_ReadShuntVoltage(float *shuntVoltage_mV)
 
 /*
  * 一次加锁读三寄存器: 保证电压/电流/功率是同一转换周期的快照
- *
  * 如果分三次加锁, 中间可能被其他 I2C 任务 (如 AHT20) 打断,
  * 导致电压来自 T0, 电流来自 T1, 功率来自 T2, 相乘结果不自洽。
- *
- * do{...}while(0): 无 goto 错误处理技巧, break 跳到统一的解锁+return
  */
 INA226_Status_t INA226_ReadAll(float *voltage, float *current, float *power)
 {
-    INA226_Status_t ret;
+    uint16_t bus_reg, curr_reg, pwr_reg;
 
     i2c_lock();
 
-    ret = INA226_OK;
-    do {
-        uint16_t bus_reg, curr_reg, pwr_reg;
-
-        if (ina226_read_reg(INA226_REG_BUS_VOLTAGE, &bus_reg) != HAL_OK) {
-            ret = INA226_ERR_I2C;
-            break;
-        }
-        if (ina226_read_reg(INA226_REG_CURRENT, &curr_reg) != HAL_OK) {
-            ret = INA226_ERR_I2C;
-            break;
-        }
-        if (ina226_read_reg(INA226_REG_POWER, &pwr_reg) != HAL_OK) {
-            ret = INA226_ERR_I2C;
-            break;
-        }
-
-        if (voltage != NULL) *voltage = (float)bus_reg * 0.00125f;
-        if (current != NULL) *current = (float)((int16_t)curr_reg) * s_current_lsb;
-        if (power != NULL)   *power   = (float)pwr_reg * 25.0f * s_current_lsb;
-    } while (0);
+    if (ina226_read_reg(INA226_REG_BUS_VOLTAGE, &bus_reg) != HAL_OK) {
+        i2c_unlock();
+        return INA226_ERR_I2C;
+    }
+    if (ina226_read_reg(INA226_REG_CURRENT, &curr_reg) != HAL_OK) {
+        i2c_unlock();
+        return INA226_ERR_I2C;
+    }
+    if (ina226_read_reg(INA226_REG_POWER, &pwr_reg) != HAL_OK) {
+        i2c_unlock();
+        return INA226_ERR_I2C;
+    }
 
     i2c_unlock();
 
-    return ret;
+    if (voltage != NULL) *voltage = (float)bus_reg * 0.00125f;
+    if (current != NULL) *current = (float)((int16_t)curr_reg) * s_current_lsb;
+    if (power != NULL)   *power   = (float)pwr_reg * 25.0f * s_current_lsb;
+
+    return INA226_OK;
 }

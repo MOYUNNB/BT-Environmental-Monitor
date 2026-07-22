@@ -242,6 +242,7 @@
  *   - 可移植: 如果换到 USART1, 只需改 Init 的入参
  */
 static UART_HandleTypeDef *s_huart = NULL;
+static uint8_t             s_bt_at_done = 0;  /* AT 命令已完成 (首次发送时执行) */
 
 /*
  * hdma_usart2_rx: DMA 句柄, 由 CubeMX 在 main.h 或 stm32f4xx_hal_msp.c 中声明
@@ -303,16 +304,6 @@ typedef struct {
 static RingBuf_t s_ring;
 static uint16_t  s_last_ndtr = 0;
 
-/*
- * s_dma_read_pos: 用于追踪在 s_dma_rx_buf 中应该从哪个位置读取数据。
- * 这是另一种实现方式 —— 不用 NDTR 算起始位置, 直接维护一个读取指针。
- * 每次 IDLE 中断: 从 s_dma_read_pos 读取 received 个字节, 然后
- * s_dma_read_pos = (s_dma_read_pos + received) & (BT_RX_BUF_SIZE - 1)
- *
- * 这个变量当前未被使用, 留作参考。
- * 你可以选择用 s_last_ndtr 或 s_dma_read_pos, 两者逻辑等价。
- */
-/* static uint16_t s_dma_read_pos = 0; */
 
 /* ---- 环形队列操作函数 (内联, 仅本文件可见) ---- */
 
@@ -324,25 +315,6 @@ static uint16_t  s_last_ndtr = 0;
  * 不需要清空 buf 数组, 因为 head/tail 控制访问范围。
  */
 static void ring_init(RingBuf_t *r) { r->head = r->tail = 0; }
-
-/**
- * @brief  获取环形队列中有效数据的字节数
- * @param  r: 环形队列指针
- * @return 有效字节数
- *
- * 公式: (head - tail) & (size - 1)
- * 由于 size = 512 = 2^9, size-1 = 0x1FF
- * head - tail 可能是负数 (在 uint16_t 下回绕), & 0x1FF 截断后取模
- *
- * 示例:
- *   head=10, tail=0 → (10-0)&0x1FF = 10 ✓
- *   head=0, tail=500 (回绕) → (0-500)&0x1FF = (65536-500)&0x1FF = 12 ✓
- *     (实际上 ring_put 不会让 head 落后 tail 这么多, 但公式仍然正确)
- */
-static uint16_t ring_avail(RingBuf_t *r)
-{
-    return (uint16_t)((r->head - r->tail) & (BT_RING_BUF_SIZE - 1));
-}
 
 /**
  * @brief  向环形队列写入一个字节
@@ -422,21 +394,29 @@ void BLUETOOTH_Init(UART_HandleTypeDef *huart)
     s_last_ndtr = __HAL_DMA_GET_COUNTER(&hdma_usart2_rx);
 
     /*
-     * 第 6 步: AT 指令配置模块名和波特率 (9600bps 下每条 AT 约 10ms)
-     * XW040 默认 9600bps, 我们不改波特率, 只改蓝牙名称
-     * 注意: AT 配置通常只需要在新模块上执行一次, 但每次初始化执行也无害
+     * 第 6 步: AT 指令延迟到首次发送时执行 (避免启动时阻塞 700ms)
+     * 见 bluetooth_at_init(), 由 BLUETOOTH_Send 在首次调用时触发。
      */
+    s_bt_at_done = 0;
+}
+
+/* 发送 AT 配置命令 (仅在首次发送时执行一次, 避免启动阻塞) */
+static void bluetooth_at_init(void)
+{
+    if (s_bt_at_done) return;
+    s_bt_at_done = 1;
+
     HAL_Delay(500);                                    /* 等待模块启动 */
     HAL_UART_Transmit(s_huart, (uint8_t *)"AT\r\n", 4, 100);
-    HAL_Delay(100);
-    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+NAMESensorMonitor\r\n", 22, 200);  /* HC-06: 无 = 号 */
-    HAL_Delay(100);
-    /* HC-06 默认 9600bps, 无需改波特率; 如需改: AT+BAUD4(9600) */
+    osDelay(100);
+    HAL_UART_Transmit(s_huart, (uint8_t *)"AT+NAMESensorMonitor\r\n", 22, 200);
+    osDelay(100);
 }
 
 void BLUETOOTH_Send(const char *json_str)
 {
     if (s_huart != NULL && json_str != NULL) {
+        bluetooth_at_init();  /* 首次发送时执行 AT 配置 (此时在任务上下文中) */
         HAL_UART_Transmit(s_huart, (uint8_t *)json_str, strlen(json_str), 1000);
     }
 }
@@ -487,9 +467,18 @@ uint8_t BLUETOOTH_GetCmd(BT_CmdPacket_t *pkt)
     } else if (strstr(line, "\"led\"")) {
         pkt->cmd = BT_CMD_SET_LED;
         char *p;
-        if ((p = strstr(line, "\"r\":")) != NULL) pkt->r = atoi(p + 4);
-        if ((p = strstr(line, "\"g\":")) != NULL) pkt->g = atoi(p + 4);
-        if ((p = strstr(line, "\"b\":")) != NULL) pkt->b = atoi(p + 4);
+        if ((p = strstr(line, "\"r\":")) != NULL) {
+            p += 4; while (*p == ' ') p++;
+            pkt->r = atoi(p);
+        }
+        if ((p = strstr(line, "\"g\":")) != NULL) {
+            p += 4; while (*p == ' ') p++;
+            pkt->g = atoi(p);
+        }
+        if ((p = strstr(line, "\"b\":")) != NULL) {
+            p += 4; while (*p == ' ') p++;
+            pkt->b = atoi(p);
+        }
     } else {
         pkt->cmd = BT_CMD_UNKNOWN;
     }

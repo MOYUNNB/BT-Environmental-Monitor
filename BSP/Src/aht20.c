@@ -28,15 +28,16 @@ static void i2c_unlock(void)
 
 /**
  * @brief  读状态寄存器 (0x71)
+ * @param  status: 输出状态值
+ * @retval HAL_OK 成功, 否则 I2C 错误
  * @note   用 Mem_Read: 先写子地址 0x71, 再读 1 字节, 中间 RESTART 不释放总线
  *         Master_Transmit/Receive 则需 STOP+START, 不如 RESTART 高效
  */
-static uint8_t aht20_read_status(void)
+static HAL_StatusTypeDef aht20_read_status(uint8_t *status)
 {
-    uint8_t status = 0xFFU;
-    HAL_I2C_Mem_Read(s_hi2c, AHT20_ADDR, 0x71U, I2C_MEMADD_SIZE_8BIT,
-                     &status, 1U, 100U);
-    return status;
+    *status = 0xFFU;
+    return HAL_I2C_Mem_Read(s_hi2c, AHT20_ADDR, 0x71U, I2C_MEMADD_SIZE_8BIT,
+                            status, 1U, 100U);
 }
 
 /* ---- 对外接口 ---- */
@@ -66,7 +67,10 @@ AHT20_Status_t AHT20_Init(I2C_HandleTypeDef *hi2c, void *pSemaphore)
 
     /* 检查校准标志 bit3 */
     i2c_lock();
-    status = aht20_read_status();
+    if (aht20_read_status(&status) != HAL_OK) {
+        i2c_unlock();
+        return AHT20_ERR_I2C;
+    }
     i2c_unlock();
 
     if (!(status & AHT20_STATUS_CALIBRATED)) {

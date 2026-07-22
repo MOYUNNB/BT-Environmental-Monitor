@@ -22,8 +22,8 @@ typedef enum {
     PAGE_COUNT
 } PageID_t;
 
-/* 当前页面编号 (由按键任务修改, LCD 任务读取) */
-extern PageID_t g_current_page;
+/* 当前页面编号 (由按键任务修改, LCD 任务读取, volatile 防止编译器优化跨任务读写) */
+extern volatile PageID_t g_current_page;
 
 /**
  * @brief   初始化页面系统
